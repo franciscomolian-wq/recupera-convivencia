@@ -455,7 +455,17 @@ export const INTERVIEW_TEMPLATES = [
    (distintos en cada uno; alimentan el motor junto a la normativa)
    ---------------------------------------------------------------- */
 export const DEFAULT_ESTABLISHMENT_DOCS = [
-  { id: "rice", name: "Reglamento Interno de Convivencia (RICE)", status: "Cargado", updated: "mar 2026" },
-  { id: "pei", name: "Proyecto Educativo Institucional (PEI)", status: "Cargado", updated: "dic 2025" },
-  { id: "eval", name: "Reglamento de Evaluación (Decreto 67)", status: "Pendiente", updated: "—" },
+  { id: "rice", name: "Reglamento Interno de Convivencia (RICE)", status: "Cargado", updated: "mar 2026", url: "" },
+  { id: "pei", name: "Proyecto Educativo Institucional (PEI)", status: "Cargado", updated: "dic 2025", url: "" },
+  { id: "eval", name: "Reglamento de Evaluación (Decreto 67)", status: "Pendiente", updated: "—", url: "" },
+  { id: "pme", name: "Plan de Mejoramiento Educacional (PME)", status: "Pendiente", updated: "—", url: "" },
+];
+
+/* Plan de convivencia y PME (Plan de Mejoramiento Educacional) */
+export const PME_DIMENSIONS = ["Gestión Pedagógica", "Liderazgo Escolar", "Convivencia Escolar", "Gestión de Recursos"];
+
+export const INITIAL_ACCIONES = [
+  { id: "ac1", nombre: "Talleres de habilidades socioemocionales", dimension: "Convivencia Escolar", objetivo: "Fortalecer la convivencia y prevenir conflictos", responsable: "Coordinador de Convivencia", inicio: "2026-03-10", termino: "2026-11-30", avance: 45 },
+  { id: "ac2", nombre: "Actualización participativa del RICE", dimension: "Convivencia Escolar", objetivo: "Revisar el reglamento con la comunidad", responsable: "Equipo de Convivencia", inicio: "2026-04-01", termino: "2026-09-30", avance: 70 },
+  { id: "ac3", nombre: "Plan de mediación entre pares", dimension: "Convivencia Escolar", objetivo: "Implementar mediación escolar", responsable: "Dupla psicosocial", inicio: "2026-05-01", termino: "2026-12-15", avance: 30 },
 ];

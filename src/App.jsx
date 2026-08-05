@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink,
+  Inbox, Archive, PenLine, ExternalLink, Target,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -16,7 +16,7 @@ import {
   UF_VALUE_CLP, MONTHLY_REVENUE_UF, STUDENTS, MEASURE_TYPES,
   ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
   GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
-  DOC_CATEGORIES, INITIAL_DOCUMENTS,
+  DOC_CATEGORIES, INITIAL_DOCUMENTS, PME_DIMENSIONS, INITIAL_ACCIONES,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
@@ -64,6 +64,7 @@ export default function App() {
   const [events, setEvents] = useState(INITIAL_EVENTS);
   const [gestiones, setGestiones] = useState(INITIAL_GESTIONES);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
+  const [acciones, setAcciones] = useState(INITIAL_ACCIONES);
 
   if (!session) return <Login users={users} onLogin={setSession} />;
 
@@ -72,7 +73,7 @@ export default function App() {
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
-    documents, setDocuments,
+    documents, setDocuments, acciones, setAcciones,
   };
 
   const role = ROLES[session.role];
@@ -224,9 +225,9 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "reportes", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
-  audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "gestion", "auditoria", "normativa"],
-  limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "formatos", "normativa"],
+  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "reportes", "planpme", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
 };
 const PORTAL_NAV = {
@@ -243,6 +244,7 @@ const PORTAL_NAV = {
   gestion: { label: "Redes externas (gestiones)", icon: Share2 },
   nuevo: { label: "Nuevo caso", icon: Plus },
   reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
+  planpme: { label: "Plan de convivencia y PME", icon: Target },
   formatos: { label: "Formatos y plantillas", icon: FileText },
   normativa: { label: "Motor normativo", icon: Shield },
   redes: { label: "Redes de derivación", icon: Network },
@@ -258,7 +260,7 @@ const NAV_GROUPS = [
   { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "inspectoria", "pie", "nuevo"] },
   { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
   { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
-  { label: "Análisis", color: "#1A73E8", keys: ["reportes"] },
+  { label: "Análisis y planificación", color: "#1A73E8", keys: ["reportes", "planpme"] },
   { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "auditoria", "perfiles", "configuracion"] },
 ];
 function initials(name) { return (name || "").split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase(); }
@@ -298,6 +300,7 @@ function PortalApp(props) {
         {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
         {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
+        {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={role} />}
         {view === "formatos" && <FormatosPage />}
         {view === "normativa" && <NormativaPage docs={props.docs} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
@@ -1198,6 +1201,99 @@ function DocumentalPage({ documents, setDocuments, cases, role }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/* ============ PLAN DE CONVIVENCIA Y PME (documentos + seguimiento) ==== */
+function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
+  const readOnly = role.scope === "audit";
+  const [a, setA] = useState({ nombre: "", dimension: "Convivencia Escolar", objetivo: "", responsable: "", inicio: "", termino: "", avance: 0 });
+  const [fdim, setFdim] = useState("");
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const rows = acciones.filter((x) => !fdim || x.dimension === fdim);
+  const avgAvance = acciones.length ? Math.round(acciones.reduce((s, x) => s + (Number(x.avance) || 0), 0) / acciones.length) : 0;
+  const completas = acciones.filter((x) => Number(x.avance) >= 100).length;
+  function setDocField(id, patch) { setDocs(docs.map((d) => (d.id === id ? { ...d, ...patch } : d))); }
+  function updAccion(id, patch) { setAcciones(acciones.map((x) => (x.id === id ? { ...x, ...patch } : x))); }
+  function addAccion() { if (a.nombre.trim()) { setAcciones([{ id: "ac" + Date.now(), ...a }, ...acciones]); setA({ nombre: "", dimension: "Convivencia Escolar", objetivo: "", responsable: "", inicio: "", termino: "", avance: 0 }); } }
+  const dimColor = (d) => (d === "Convivencia Escolar" ? C.ok : d === "Liderazgo Escolar" ? C.primary : d === "Gestión Pedagógica" ? C.warn : C.seal);
+  const barColor = (v) => (v >= 100 ? C.ok : v >= 50 ? C.primary : C.warn);
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Plan de convivencia y PME" subtitle="Documentos institucionales (RICE, Reglamento de Evaluación, PEI, PME) y seguimiento de las acciones del plan de convivencia y del Plan de Mejoramiento Educacional." right={<Toolbar onPrint={printView} onExport={() => exportJSON({ docs, acciones }, "plan-pme.json")} />} />
+
+      <Section icon={FileText} title="Documentos institucionales">
+        <p style={{ color: C.textSoft }} className="text-xs mb-3">Estos documentos son propios de cada establecimiento y alimentan el motor normativo. Cargá el archivo o enlazá su ubicación en Drive.</p>
+        <div className="flex flex-col gap-2">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg flex-wrap" style={{ background: C.paper }}>
+              <div className="min-w-[180px] flex-1">
+                <div style={{ color: C.ink }} className="text-sm">{d.name}</div>
+                <div style={{ color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px]">{d.status} · {d.updated}</div>
+              </div>
+              <div className="flex items-center gap-2 print:hidden">
+                <input value={d.url || ""} onChange={(e) => setDocField(d.id, { url: e.target.value })} placeholder="Enlace a Drive" className="rounded-md p-1.5 text-xs w-40" style={inp} />
+                {d.url && <a href={d.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir</a>}
+                {!readOnly && (
+                  <label className="text-xs px-3 py-1.5 rounded-full cursor-pointer inline-flex items-center gap-1.5 mbtn-outline" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                    <Upload size={13} /> Cargar
+                    <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocField(d.id, { status: "Cargado", updated: new Date().toISOString().slice(0, 7) }); e.target.value = ""; }} />
+                  </label>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section icon={Target} title="Seguimiento de acciones — convivencia y PME">
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div><div style={{ color: C.ink }} className="text-xl font-semibold">{acciones.length}</div><div style={{ color: C.textSoft }} className="text-[11px]">Acciones</div></div>
+          <div><div style={{ color: C.primary }} className="text-xl font-semibold">{avgAvance}%</div><div style={{ color: C.textSoft }} className="text-[11px]">Avance promedio</div></div>
+          <div><div style={{ color: C.ok }} className="text-xl font-semibold">{completas}</div><div style={{ color: C.textSoft }} className="text-[11px]">Completadas</div></div>
+        </div>
+        <div className="flex gap-2 mb-3 print:hidden">
+          <select value={fdim} onChange={(e) => setFdim(e.target.value)} className="rounded-md p-2 text-sm" style={inp}><option value="">Todas las dimensiones</option>{PME_DIMENSIONS.map((d) => <option key={d}>{d}</option>)}</select>
+        </div>
+        <div className="flex flex-col gap-2.5 mb-4">
+          {rows.map((x) => (
+            <div key={x.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div style={{ color: C.ink }} className="text-sm font-medium">{x.nombre}</div>
+                <span style={{ background: dimColor(x.dimension) + "22", color: dimColor(x.dimension) }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{x.dimension}</span>
+              </div>
+              {x.objetivo && <div style={{ color: C.textSoft }} className="text-xs mt-0.5">{x.objetivo}</div>}
+              <div style={{ color: C.textSoft }} className="text-[11px] mt-1">Responsable: {x.responsable || "—"} · {x.inicio || "—"} → {x.termino || "—"}</div>
+              <div className="flex items-center gap-3 mt-2">
+                <div className="flex-1 h-2.5 rounded-full" style={{ background: C.appBg }}><div style={{ width: `${x.avance}%`, background: barColor(Number(x.avance)) }} className="h-2.5 rounded-full" /></div>
+                <span style={{ color: C.ink }} className="text-xs font-medium w-10 text-right">{x.avance}%</span>
+              </div>
+              {!readOnly && (
+                <div className="flex items-center gap-2 mt-2 print:hidden">
+                  <input type="range" min="0" max="100" step="5" value={x.avance} onChange={(e) => updAccion(x.id, { avance: Number(e.target.value) })} className="flex-1" />
+                  <button onClick={() => setAcciones(acciones.filter((y) => y.id !== x.id))} style={{ color: C.textSoft }}><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {!readOnly && (
+          <div style={{ background: C.paper }} className="rounded-lg p-3 print:hidden">
+            <div style={{ color: C.ink }} className="text-xs font-medium mb-2">Nueva acción</div>
+            <div className="flex flex-wrap gap-2">
+              <input value={a.nombre} onChange={(e) => setA({ ...a, nombre: e.target.value })} placeholder="Nombre de la acción" className="rounded-md p-2 text-sm flex-1 min-w-[180px]" style={inp} />
+              <select value={a.dimension} onChange={(e) => setA({ ...a, dimension: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{PME_DIMENSIONS.map((d) => <option key={d}>{d}</option>)}</select>
+              <input value={a.responsable} onChange={(e) => setA({ ...a, responsable: e.target.value })} placeholder="Responsable" className="rounded-md p-2 text-sm" style={inp} />
+              <input value={a.objetivo} onChange={(e) => setA({ ...a, objetivo: e.target.value })} placeholder="Objetivo" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+              <input type="date" value={a.inicio} onChange={(e) => setA({ ...a, inicio: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+              <input type="date" value={a.termino} onChange={(e) => setA({ ...a, termino: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+              <Btn onClick={addAccion}><Plus size={14} /> Agregar acción</Btn>
+            </div>
+          </div>
+        )}
+      </Section>
     </div>
   );
 }
