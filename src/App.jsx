@@ -6,12 +6,14 @@ import {
   Printer, Download, Upload, LogOut, Sparkles, Paperclip,
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
+  MessageSquare, Calendar, Gavel, Trash2,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
   ESTABLISHMENTS, USERS, INITIAL_NOTIFICATIONS, EVIDENCE_TYPES,
   DEFAULT_EMAIL_TEMPLATES, INTERVIEW_TEMPLATES, DEFAULT_ESTABLISHMENT_DOCS,
   UF_VALUE_CLP, MONTHLY_REVENUE_UF, STUDENTS, MEASURE_TYPES,
+  ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
@@ -55,6 +57,8 @@ export default function App() {
   const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
   const [docs, setDocs] = useState(DEFAULT_ESTABLISHMENT_DOCS);
   const [students, setStudents] = useState(STUDENTS);
+  const [messages, setMessages] = useState(INITIAL_MESSAGES);
+  const [events, setEvents] = useState(INITIAL_EVENTS);
 
   if (!session) return <Login users={users} onLogin={setSession} />;
 
@@ -62,7 +66,7 @@ export default function App() {
     session, setSession, cases, setCases, users, setUsers,
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
-    students, setStudents,
+    students, setStudents, messages, setMessages, events, setEvents,
   };
 
   const role = ROLES[session.role];
@@ -214,15 +218,18 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "casos", "expedientes", "nuevo", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
-  audit: ["dashboard", "casos", "expedientes", "reportes", "auditoria", "normativa"],
-  limited: ["dashboard", "casos", "expedientes", "nuevo", "formatos", "normativa"],
+  admin: ["dashboard", "casos", "expedientes", "inspectoria", "nuevo", "agenda", "comunicacion", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "casos", "expedientes", "inspectoria", "agenda", "reportes", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "expedientes", "nuevo", "agenda", "comunicacion", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
 };
 const PORTAL_NAV = {
   dashboard: { label: "Panel general", icon: LayoutGrid },
   casos: { label: "Casos de convivencia", icon: FolderOpen },
   expedientes: { label: "Expedientes de estudiantes", icon: ClipboardList },
+  inspectoria: { label: "Inspectoría General", icon: Gavel },
+  agenda: { label: "Agenda institucional", icon: Calendar },
+  comunicacion: { label: "Comunicación interna", icon: MessageSquare },
   nuevo: { label: "Nuevo caso", icon: Plus },
   reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
   formatos: { label: "Formatos y plantillas", icon: FileText },
@@ -259,6 +266,9 @@ function PortalApp(props) {
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
+        {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={role} />}
+        {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={role} />}
+        {view === "comunicacion" && <MessagesPage messages={props.messages} setMessages={props.setMessages} session={session} role={role} />}
         {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} />}
         {view === "formatos" && <FormatosPage />}
@@ -563,6 +573,232 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           </div>
         )}
       </ExpBlock>
+    </div>
+  );
+}
+
+/* =================== MÓDULO 4 — INSPECTORÍA GENERAL =============== */
+function InspectoriaPage({ students, setStudents, role }) {
+  const readOnly = role.scope === "audit";
+  const [sid, setSid] = useState(students[0]?.id);
+  const s = students.find((x) => x.id === sid);
+  const [anot, setAnot] = useState({ tipo: "negativa", fecha: "", descripcion: "" });
+  const [susp, setSusp] = useState({ fechaInicio: "", dias: "", motivo: "" });
+  const [atr, setAtr] = useState({ fecha: "", cantidad: "1" });
+  const [ret, setRet] = useState({ fecha: "", hora: "", retira: "", motivo: "" });
+
+  const sum = (k, fn) => students.reduce((a, x) => a + fn(x[k] || []), 0);
+  const totAnotNeg = sum("anotaciones", (arr) => arr.filter((n) => n.tipo === "negativa").length);
+  const totSusp = sum("suspensiones", (arr) => arr.length);
+  const totAtrasos = sum("atrasos", (arr) => arr.reduce((b, t) => b + (Number(t.cantidad) || 1), 0));
+  const totRetiros = sum("retiros", (arr) => arr.length);
+
+  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
+  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const chip = (bg, color, txt) => <span style={{ background: bg, color }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{txt}</span>;
+  const anotColor = { positiva: C.ok, negativa: C.urgent, neutra: C.textSoft };
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Inspectoría General" subtitle="Hoja de vida, control disciplinario, suspensiones, atrasos y retiros. Todo queda vinculado al estudiante." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "inspectoria.json")} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <StatCard label="Anotaciones negativas" value={totAnotNeg} color={C.urgent} />
+        <StatCard label="Suspensiones" value={totSusp} color={C.warn} />
+        <StatCard label="Atrasos (total)" value={totAtrasos} color={C.ink} />
+        <StatCard label="Retiros" value={totRetiros} color={C.ink} />
+      </div>
+      <div className="mb-4 print:hidden">
+        <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante</label>
+        <select value={sid} onChange={(e) => setSid(e.target.value)} className="mt-1.5 w-full max-w-sm rounded-md p-2.5 text-sm" style={inp}>
+          {students.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.curso}</option>)}
+        </select>
+      </div>
+      {s && (
+        <>
+          <ExpBlock icon={FileText} title={`Anotaciones — hoja de vida (${(s.anotaciones || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.anotaciones || []).map((n) => (
+                <div key={n.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2 flex-wrap">
+                  <div><span style={{ color: C.ink }}>{n.descripcion}</span> <span style={{ color: C.textSoft }}>· {n.fecha || "sin fecha"}</span></div>
+                  {chip(anotColor[n.tipo] + "22", anotColor[n.tipo], ANOTACION_TYPES.find((t) => t.value === n.tipo)?.label || n.tipo)}
+                </div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <select value={anot.tipo} onChange={(e) => setAnot({ ...anot, tipo: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{ANOTACION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
+                <input type="date" value={anot.fecha} onChange={(e) => setAnot({ ...anot, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input value={anot.descripcion} onChange={(e) => setAnot({ ...anot, descripcion: e.target.value })} placeholder="Descripción" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+                <Btn onClick={() => { if (anot.descripcion.trim()) { add("anotaciones", anot); setAnot({ tipo: "negativa", fecha: "", descripcion: "" }); } }}><Plus size={14} /> Agregar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+
+          <ExpBlock icon={Lock} title={`Suspensiones (${(s.suspensiones || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.suspensiones || []).map((x) => (
+                <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }}>{x.dias} día(s)</span> <span style={{ color: C.textSoft }}>· desde {x.fechaInicio || "sin fecha"} · {x.motivo}</span></div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input type="date" value={susp.fechaInicio} onChange={(e) => setSusp({ ...susp, fechaInicio: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input type="number" min="1" value={susp.dias} onChange={(e) => setSusp({ ...susp, dias: e.target.value })} placeholder="Días" className="rounded-md p-2 text-sm w-20" style={inp} />
+                <input value={susp.motivo} onChange={(e) => setSusp({ ...susp, motivo: e.target.value })} placeholder="Motivo" className="rounded-md p-2 text-sm flex-1 min-w-[140px]" style={inp} />
+                <Btn onClick={() => { if (susp.dias) { add("suspensiones", susp); setSusp({ fechaInicio: "", dias: "", motivo: "" }); } }}><Plus size={14} /> Agregar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+
+          <ExpBlock icon={Clock} title={`Atrasos (${(s.atrasos || []).length} registros)`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.atrasos || []).map((x) => (
+                <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }}>{x.cantidad} atraso(s)</span> <span style={{ color: C.textSoft }}>· {x.fecha || "sin fecha"}</span></div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input type="date" value={atr.fecha} onChange={(e) => setAtr({ ...atr, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input type="number" min="1" value={atr.cantidad} onChange={(e) => setAtr({ ...atr, cantidad: e.target.value })} placeholder="Cantidad" className="rounded-md p-2 text-sm w-24" style={inp} />
+                <Btn onClick={() => { if (atr.fecha) { add("atrasos", atr); setAtr({ fecha: "", cantidad: "1" }); } }}><Plus size={14} /> Agregar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+
+          <ExpBlock icon={LogOut} title={`Retiros (${(s.retiros || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.retiros || []).map((x) => (
+                <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }}>{x.fecha} {x.hora}</span> <span style={{ color: C.textSoft }}>· retira: {x.retira} · {x.motivo}</span></div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input type="date" value={ret.fecha} onChange={(e) => setRet({ ...ret, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input type="time" value={ret.hora} onChange={(e) => setRet({ ...ret, hora: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input value={ret.retira} onChange={(e) => setRet({ ...ret, retira: e.target.value })} placeholder="Retira (nombre)" className="rounded-md p-2 text-sm" style={inp} />
+                <input value={ret.motivo} onChange={(e) => setRet({ ...ret, motivo: e.target.value })} placeholder="Motivo" className="rounded-md p-2 text-sm flex-1 min-w-[120px]" style={inp} />
+                <Btn onClick={() => { if (ret.fecha) { add("retiros", ret); setRet({ fecha: "", hora: "", retira: "", motivo: "" }); } }}><Plus size={14} /> Agregar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =================== MÓDULO 10 — AGENDA INSTITUCIONAL ============= */
+function AgendaPage({ events, setEvents, cases, role }) {
+  const readOnly = role.scope === "audit";
+  const [ev, setEv] = useState({ tipo: "Entrevista", title: "", fecha: "", hora: "", notas: "", recordar: 1 });
+  const derived = cases.filter((c) => !c.closed).map((c) => {
+    const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+    return { id: "dl-" + c.id, tipo: "Plazo legal", title: `${c.type.label} — ${step.title}`, fecha: step.due ? new Date(step.due).toISOString().slice(0, 10) : "", hora: "", notas: "Caso " + c.id, derived: true };
+  }).filter((e) => e.fecha);
+  const all = [...events, ...derived].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")));
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  function add() { if (ev.title.trim() && ev.fecha) { setEvents([...events, { id: "ev" + Date.now(), ...ev }]); setEv({ tipo: "Entrevista", title: "", fecha: "", hora: "", notas: "", recordar: 1 }); } }
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Agenda institucional" subtitle="Entrevistas, reuniones, citaciones, audiencias, visitas y plazos legales. Los plazos de los casos activos aparecen automáticamente." right={<Toolbar onPrint={printView} onExport={() => exportJSON(events, "agenda.json")} />} />
+      {!readOnly && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-5 print:hidden">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Nuevo evento</div>
+          <div className="flex flex-wrap gap-2">
+            <select value={ev.tipo} onChange={(e) => setEv({ ...ev, tipo: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{EVENT_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+            <input value={ev.title} onChange={(e) => setEv({ ...ev, title: e.target.value })} placeholder="Título" className="rounded-md p-2 text-sm flex-1 min-w-[180px]" style={inp} />
+            <input type="date" value={ev.fecha} onChange={(e) => setEv({ ...ev, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <input type="time" value={ev.hora} onChange={(e) => setEv({ ...ev, hora: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <input value={ev.notas} onChange={(e) => setEv({ ...ev, notas: e.target.value })} placeholder="Notas" className="rounded-md p-2 text-sm flex-1 min-w-[140px]" style={inp} />
+            <div className="flex items-center gap-1.5 text-xs" style={{ color: C.textSoft }}><span>Recordar</span><input type="number" min="0" value={ev.recordar} onChange={(e) => setEv({ ...ev, recordar: Number(e.target.value) })} className="rounded-md p-2 text-sm w-16" style={inp} /><span>días antes</span></div>
+            <Btn onClick={add}><Plus size={14} /> Agendar</Btn>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col gap-2">
+        {all.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">No hay eventos en la agenda.</div>}
+        {all.map((e) => {
+          const dl = e.fecha ? daysLeft(new Date(e.fecha + "T" + (e.hora || "23:59"))) : 99;
+          const color = urgencyColor(dl, C);
+          return (
+            <div key={e.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${color}` }} className="rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-3">
+                <div className="text-center shrink-0" style={{ minWidth: 46 }}>
+                  <div style={{ ...mono, color: C.ink }} className="text-sm font-semibold">{e.fecha?.slice(8, 10)}</div>
+                  <div style={{ color: C.textSoft }} className="text-[10px] uppercase">{["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][Number(e.fecha?.slice(5, 7)) - 1]}</div>
+                </div>
+                <div>
+                  <div style={{ color: C.ink }} className="text-sm font-medium">{e.title}</div>
+                  <div style={{ color: C.textSoft }} className="text-xs">{e.tipo}{e.hora ? ` · ${e.hora}` : ""}{e.notas ? ` · ${e.notas}` : ""}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span style={{ color }} className="text-xs font-medium whitespace-nowrap">{dl < 0 ? `hace ${-dl}d` : dl === 0 ? "hoy" : `en ${dl}d`}</span>
+                {!readOnly && !e.derived && <button onClick={() => setEvents(events.filter((x) => x.id !== e.id))} style={{ color: C.textSoft }} className="print:hidden"><Trash2 size={14} /></button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* =================== MÓDULO 6 — COMUNICACIÓN INTERNA ============== */
+function MessagesPage({ messages, setMessages, session, role }) {
+  const [to, setTo] = useState("todos");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [sent, setSent] = useState(false);
+  const recipients = Object.entries(ROLES).filter(([k]) => k !== "superadmin" && k !== "apoderado");
+  const inbox = messages.filter((m) => m.to === "todos" || m.to === session.role || m.from === session.name);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  function send() {
+    if (!subject.trim()) return;
+    setMessages([{ id: "m" + Date.now(), from: session.name, fromRole: role.label, to, subject, body, at: new Date().toISOString().slice(0, 10), read: false }, ...messages]);
+    setSubject(""); setBody(""); setSent(true); setTimeout(() => setSent(false), 2500);
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Comunicación interna" subtitle="Mensajes y alertas entre estamentos (Dirección, Inspectoría, Convivencia, PIE, Orientación, UTP, docentes). Cada comunicación queda registrada." right={<Toolbar onPrint={printView} onExport={() => exportJSON(messages, "comunicaciones.json")} />} />
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-5 print:hidden">
+        <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Nuevo mensaje</div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span style={{ color: C.textSoft }} className="text-xs">Para:</span>
+            <select value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md p-2 text-sm" style={inp}>
+              <option value="todos">Todos los estamentos (alerta masiva)</option>
+              {recipients.map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Asunto" className="rounded-md p-2.5 text-sm" style={inp} />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="Mensaje…" className="rounded-md p-2.5 text-sm" style={inp} />
+          <div className="flex items-center gap-3"><Btn onClick={send}><Send size={14} /> Enviar</Btn>{sent && <span style={{ color: C.ok }} className="text-sm flex items-center gap-1"><CheckCircle2 size={15} /> Enviado</span>}</div>
+        </div>
+      </div>
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-3 uppercase tracking-wide">Bandeja</div>
+      <div className="flex flex-col gap-2">
+        {inbox.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">No hay mensajes.</div>}
+        {inbox.map((m) => {
+          const enviado = m.from === session.name;
+          const dest = m.to === "todos" ? "Todos" : ROLES[m.to]?.label || m.to;
+          return (
+            <div key={m.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-wide">{enviado ? `Enviado a ${dest}` : `De ${m.fromRole || m.from}`} · {m.at}</div>
+                <span style={{ background: enviado ? C.adminSoft : C.paper, color: enviado ? C.admin : C.seal }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{enviado ? "Enviado" : "Recibido"}</span>
+              </div>
+              <div style={{ color: C.ink }} className="text-sm font-medium mt-1">{m.subject}</div>
+              {m.body && <div style={{ color: C.textSoft }} className="text-sm mt-0.5">{m.body}</div>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

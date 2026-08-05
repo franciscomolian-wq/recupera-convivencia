@@ -303,15 +303,45 @@ export const STUDENTS = [
     citaciones: [{ id: "ci1", fecha: "2026-07-05", motivo: "Entrevista de convivencia", estado: "Asiste", excusa: "" }],
     compromisos: [{ id: "co1", texto: "Asistir a talleres de habilidades sociales", cumplido: false }],
     medidas: [{ id: "me1", tipo: "formativa", descripcion: "Participación en programa de mediación entre pares", fecha: "2026-07-06" }],
+    anotaciones: [
+      { id: "an1", tipo: "negativa", fecha: "2026-06-28", descripcion: "Interrumpe reiteradamente la clase." },
+      { id: "an2", tipo: "positiva", fecha: "2026-07-10", descripcion: "Colabora en la mediación con un compañero." },
+    ],
+    suspensiones: [],
+    atrasos: [{ id: "at1", fecha: "2026-07-02", cantidad: 1 }],
+    retiros: [],
   },
-  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [] },
-  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [] },
+  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [] },
+  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [] },
 ];
 
 export const MEASURE_TYPES = [
   { value: "formativa", label: "Medida formativa" },
   { value: "disciplinaria", label: "Medida disciplinaria" },
   { value: "pedagogica", label: "Medida / acuerdo pedagógico" },
+];
+
+/* Inspectoría — tipos de anotación en la hoja de vida */
+export const ANOTACION_TYPES = [
+  { value: "positiva", label: "Positiva" },
+  { value: "negativa", label: "Negativa" },
+  { value: "neutra", label: "Neutra / informativa" },
+];
+
+/* Agenda — tipos de evento */
+export const EVENT_TYPES = ["Entrevista", "Reunión", "Citación", "Audiencia", "Visita domiciliaria", "Seguimiento", "Otro"];
+
+/* Comunicación interna — mensajes iniciales (demo) */
+export const INITIAL_MESSAGES = [
+  { id: "m1", from: "Dirección", fromRole: "Director/a", to: "todos", subject: "Reunión de equipo de convivencia", body: "Se cita a reunión el viernes a las 15:00 para revisar casos activos.", at: "2026-07-29", read: false },
+  { id: "m2", from: "Equipo PIE", fromRole: "PIE (Programa de Integración Escolar)", to: "coordinador", subject: "Estudiante con NEE requiere adecuación", body: "Solicitamos coordinar una reunión interdisciplinaria por el caso del 7°B.", at: "2026-07-31", read: false },
+];
+
+/* Agenda — eventos iniciales (demo) */
+export const INITIAL_EVENTS = [
+  { id: "ev1", tipo: "Entrevista", title: "Entrevista con apoderado/a J.M.", fecha: "2026-08-06", hora: "10:30", notas: "Caso RC-2026-014", recordar: 1 },
+  { id: "ev2", tipo: "Reunión", title: "Reunión de equipo de convivencia", fecha: "2026-08-08", hora: "15:00", notas: "Revisión de casos activos", recordar: 2 },
+  { id: "ev3", tipo: "Visita domiciliaria", title: "Visita domiciliaria estudiante 4°B", fecha: "2026-08-12", hora: "11:00", notas: "Coordinar con dupla psicosocial", recordar: 1 },
 ];
 
 /* ---------------------------------------------------------------
