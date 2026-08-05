@@ -581,8 +581,8 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
             const dl = daysLeft(step.due);
             return (
               <button key={c.id} onClick={() => onOpenCase(c.id)} className="text-left">
-                <div style={{ border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center justify-between gap-3 hover:shadow-sm transition">
-                  <div><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-2">{c.type.label}</span></div>
+                <div style={{ border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${caseColor(c.typeKey)}` }} className="rounded-lg p-3 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                  <div className="flex items-center gap-2"><span style={{ background: caseColor(c.typeKey) }} className="w-2 h-2 rounded-full shrink-0" /><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-1">{c.type.label}</span></div>
                   {c.closed ? chip(C.ok + "22", C.ok, "Cerrado") : <StatusPill dl={dl} />}
                 </div>
               </button>
@@ -1473,9 +1473,12 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
     <div className="max-w-3xl">
       <button onClick={onBack} style={{ color: C.textSoft }} className="text-xs mb-4 flex items-center gap-1 print:hidden">← Volver</button>
       <div className="flex items-start justify-between mb-1 gap-3 flex-wrap">
-        <div>
-          <div style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</div>
-          <div style={{ ...serif, color: C.ink }} className="text-2xl">{c.type.label}</div>
+        <div className="flex items-stretch gap-3">
+          <div style={{ background: caseColor(c.typeKey) }} className="w-1 rounded-full shrink-0" />
+          <div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</div>
+            <div style={{ ...serif, color: C.ink }} className="text-2xl">{c.type.label}</div>
+          </div>
         </div>
         {!isFamily && (
           <div className="flex items-center gap-2 flex-wrap print:hidden">
@@ -1667,7 +1670,7 @@ function ReportsPage({ cases, setCases, students = [] }) {
     return { c, step, dl, estado };
   });
   const rows = enriched.filter((r) => (!ftype || r.c.typeKey === ftype) && (!flevel || r.c.level === flevel) && (!festado || r.estado === festado));
-  const byType = Object.entries(CASE_TYPES).map(([k, v]) => ({ label: v.label, n: rows.filter((r) => r.c.typeKey === k).length })).filter((x) => x.n > 0);
+  const byType = Object.entries(CASE_TYPES).map(([k, v]) => ({ key: k, label: v.label, n: rows.filter((r) => r.c.typeKey === k).length })).filter((x) => x.n > 0);
   const maxT = Math.max(...byType.map((x) => x.n), 1);
 
   // Indicadores avanzados (Módulo 11)
@@ -1732,8 +1735,8 @@ function ReportsPage({ cases, setCases, students = [] }) {
           <div className="flex flex-col gap-2">
             {byType.map((x) => (
               <div key={x.label} className="flex items-center gap-3">
-                <div style={{ color: C.textSoft }} className="text-xs w-56 shrink-0 truncate">{x.label}</div>
-                <div className="flex-1 h-3.5 rounded" style={{ background: C.appBg }}><div style={{ width: `${(x.n / maxT) * 100}%`, background: C.seal }} className="h-3.5 rounded" /></div>
+                <div className="text-xs w-56 shrink-0 truncate flex items-center gap-1.5"><span style={{ background: caseColor(x.key) }} className="w-2 h-2 rounded-full inline-block shrink-0" /><span style={{ color: C.textSoft }}>{x.label}</span></div>
+                <div className="flex-1 h-3.5 rounded" style={{ background: C.appBg }}><div style={{ width: `${(x.n / maxT) * 100}%`, background: caseColor(x.key) }} className="h-3.5 rounded" /></div>
                 <div style={{ color: C.ink }} className="text-xs w-5 text-right">{x.n}</div>
               </div>
             ))}
@@ -1897,10 +1900,10 @@ function AuditPanel({ cases }) {
           const dl = daysLeft(step.due);
           const overdue = dl < 0;
           return (
-            <div key={c.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
+            <div key={c.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${caseColor(c.typeKey)}` }} className="rounded-lg p-4">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <div><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span></div>
-                <StatusPill dl={dl} />
+                <div className="flex items-center gap-2.5"><span style={{ background: caseColor(c.typeKey) }} className="w-2 h-2 rounded-full shrink-0" /><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-1">{c.type.label}</span></div>
+                {c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Cerrado</span> : <StatusPill dl={dl} />}
               </div>
               <div style={{ color: C.textSoft }} className="text-xs mt-2">Etapa actual: {step.title} · Responsable: {step.role}</div>
               {overdue && <div style={{ color: C.urgent }} className="text-xs mt-2 flex items-center gap-1.5"><AlertTriangle size={12} /> Excede el plazo máximo de la normativa vigente.</div>}
