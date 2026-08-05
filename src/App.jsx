@@ -252,6 +252,17 @@ const PORTAL_NAV = {
   micaso: { label: "Mi caso", icon: FolderOpen },
 };
 
+/* Agrupación del menú por secciones, con color por sección (paleta Google) */
+const NAV_GROUPS = [
+  { label: "Principal", color: "#1A73E8", keys: ["dashboard", "alertas", "micaso"] },
+  { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "inspectoria", "pie", "nuevo"] },
+  { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
+  { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
+  { label: "Análisis", color: "#1A73E8", keys: ["reportes"] },
+  { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "auditoria", "perfiles", "configuracion"] },
+];
+function initials(name) { return (name || "").split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase(); }
+
 function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
   const role = ROLES[session.role];
@@ -298,36 +309,68 @@ function PortalApp(props) {
   );
 }
 
-function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout, accent }) {
+function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout }) {
+  const activeFor = (key) =>
+    view === key ||
+    (key === "casos" && view === "caso") ||
+    (key === "expedientes" && view === "expediente") ||
+    (key === "micaso" && view === "caso");
+
   return (
     <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
-      <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
-        <div style={{ background: accent }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Scale size={17} color={C.sidebarBg} /></div>
-        <div>
-          <div style={{ ...serif, color: C.sidebarText }} className="text-base leading-tight">Recupera Convivencia</div>
-          <div style={{ ...mono, color: C.sidebarTextSoft }} className="text-[10px] tracking-widest uppercase">Convivencia educativa</div>
+      {/* Marca + barra de 4 colores de Google */}
+      <div className="px-5 pt-6 pb-4">
+        <div className="flex items-center gap-3">
+          <div style={{ background: C.primary, boxShadow: "0 2px 6px rgba(26,115,232,.35)" }} className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"><Scale size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-[17px] leading-tight">Recupera Convivencia</div>
+            <div style={{ ...mono, color: C.sidebarTextSoft }} className="text-[9.5px] tracking-widest uppercase">Convivencia educativa</div>
+          </div>
+        </div>
+        <div className="flex h-1 rounded-full overflow-hidden mt-4">
+          <div className="flex-1" style={{ background: "#4285F4" }} />
+          <div className="flex-1" style={{ background: "#EA4335" }} />
+          <div className="flex-1" style={{ background: "#FBBC04" }} />
+          <div className="flex-1" style={{ background: "#34A853" }} />
         </div>
       </div>
-      <nav className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
-        {navKeys.map((key) => {
-          const item = navMap[key]; const Icon = item.icon;
-          const active = view === key || (key === "casos" && view === "caso") || (key === "micaso" && view === "caso");
+
+      <nav className="flex-1 px-3 flex flex-col gap-0.5 overflow-y-auto pb-3">
+        {NAV_GROUPS.map((group) => {
+          const keys = group.keys.filter((k) => navKeys.includes(k));
+          if (keys.length === 0) return null;
           return (
-            <button key={key} onClick={() => { if (key === "micaso") openCase("RC-2026-014"); else setView(key); }}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition text-left"
-              style={{ background: active ? C.sidebarActive : "transparent", border: `1px solid ${active ? C.sidebarActiveBorder : "transparent"}`, color: active ? C.primary : C.sidebarText, fontWeight: active ? 600 : 500 }}>
-              <Icon size={16} /> {item.label}
-            </button>
+            <div key={group.label} className="mb-1.5">
+              <div style={{ color: C.sidebarTextSoft }} className="px-3 pt-3 pb-1 text-[9.5px] font-semibold uppercase tracking-[.13em] flex items-center gap-1.5">
+                <span style={{ background: group.color }} className="w-1.5 h-1.5 rounded-full inline-block" /> {group.label}
+              </div>
+              {keys.map((key) => {
+                const item = navMap[key]; const Icon = item.icon;
+                const active = activeFor(key);
+                return (
+                  <button key={key} onClick={() => { if (key === "micaso") openCase("RC-2026-014"); else setView(key); }}
+                    className="nav-item w-full flex items-center gap-2.5 px-3 py-2.5 rounded-full text-sm text-left"
+                    style={{ background: active ? group.color + "1F" : undefined, color: active ? group.color : C.sidebarText, fontWeight: active ? 600 : 500 }}>
+                    <Icon size={17} style={{ color: group.color, opacity: active ? 1 : 0.85 }} className="shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
       </nav>
+
+      {/* Bloque de sesión */}
       <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${C.sidebarBorder}` }}>
-        <div className="px-2 pt-3 pb-2">
-          <div style={{ color: C.sidebarTextSoft }} className="text-[11px] uppercase tracking-widest">Sesión</div>
-          <div style={{ color: C.sidebarText }} className="text-sm font-medium">{session.name}</div>
-          <div style={{ color: C.sidebarTextSoft }} className="text-xs">{role.label}</div>
+        <div className="flex items-center gap-2.5 px-2 py-2.5 rounded-xl mt-1" style={{ background: C.cardBg, border: `1px solid ${C.sidebarBorder}` }}>
+          <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-semibold">{initials(session.name)}</div>
+          <div className="min-w-0 flex-1">
+            <div style={{ color: C.ink }} className="text-sm font-medium truncate">{session.name}</div>
+            <div style={{ color: C.sidebarTextSoft }} className="text-[11px] truncate">{role.label}</div>
+          </div>
+          <button onClick={onLogout} title="Cerrar sesión" className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 hover:bg-black/5" style={{ color: C.sidebarTextSoft }}><LogOut size={16} /></button>
         </div>
-        <button onClick={onLogout} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/50 transition" style={{ color: C.sidebarText }}><LogOut size={16} /> Cerrar sesión</button>
       </div>
     </aside>
   );
