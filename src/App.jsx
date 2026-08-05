@@ -265,6 +265,19 @@ const NAV_GROUPS = [
 ];
 function initials(name) { return (name || "").split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase(); }
 
+/* Color por tipo de institución (paleta extendida Google) */
+const INST_TYPE_COLORS = {
+  "protección": "#1E8E3E",
+  "seguridad": "#D93025",
+  "judicial": "#9334E6",
+  "fiscalización": "#1A73E8",
+  "salud": "#12A4A4",
+  "laboral": "#E8710A",
+  "comunitaria": "#B5309E",
+  "interno": "#5F6368",
+};
+const instColor = (id, institutions) => INST_TYPE_COLORS[institutions.find((i) => i.id === id)?.type] || "#5F6368";
+
 function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
   const role = ROLES[session.role];
@@ -1481,7 +1494,7 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
             <Network size={16} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
             <div>
               <div style={{ color: C.ink }} className="text-sm font-medium mb-1">Redes de derivación</div>
-              <div style={{ color: C.textSoft }} className="text-sm">{c.type.network.map((id) => institutions.find((i) => i.id === id)?.label).join(" · ")}</div>
+              <div className="flex flex-wrap gap-1.5 mt-0.5">{c.type.network.map((id) => <InstChip key={id} id={id} institutions={institutions} />)}</div>
               {c.derivations.length > 0 && <div style={{ color: C.ok }} className="text-xs mt-1">Derivado a: {c.derivations.map((d) => `${d.label} (${d.email})`).join(", ")}</div>}
             </div>
           </div>
@@ -1756,26 +1769,54 @@ function FormatosPage() {
 
 /* ------------------- NORMATIVA / REDES / AUDIT -------------------- */
 function NormativaPage({ docs }) {
+  const feeds = {
+    rice: "Alimenta el paso a paso de convivencia: faltas, medidas y plazos internos.",
+    pei: "Marco de valores y sello institucional que enmarca cada decisión.",
+    eval: "Reglamento de Evaluación (Decreto 67) — ámbito pedagógico.",
+    pme: "Plan de Mejoramiento — seguimiento de las acciones de convivencia.",
+  };
   return (
     <div className="max-w-3xl">
-      <PageHead title="Motor normativo" subtitle="Normativa nacional + los documentos propios del establecimiento. El reglamento interno se valida contra estos mínimos: puede ser más exigente, nunca menos." right={<Toolbar onPrint={printView} />} />
-      {docs && (
-        <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-4 mb-5">
-          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Documentos del establecimiento</div>
-          <div className="flex flex-col gap-1.5">
-            {docs.map((d) => (
-              <div key={d.id} className="flex items-center justify-between text-xs">
-                <span style={{ color: C.text }}>{d.name}</span>
-                <span style={{ color: d.status === "Cargado" ? C.ok : C.warn }}>{d.status} · {d.updated}</span>
-              </div>
-            ))}
-          </div>
+      <PageHead title="Motor normativo" subtitle="El motor combina dos capas: la normativa nacional (igual para todos) y los documentos propios de tu establecimiento." right={<Toolbar onPrint={printView} />} />
+
+      {/* Principio */}
+      <div style={{ background: C.primary + "12", border: `1px solid ${C.primary}55` }} className="rounded-xl p-4 mb-6 flex items-start gap-3">
+        <Scale size={18} style={{ color: C.primary }} className="mt-0.5 shrink-0" />
+        <div style={{ color: C.text }} className="text-sm">
+          <b style={{ color: C.ink }}>El reglamento del establecimiento puede ser más exigente que la ley, nunca menos.</b> El motor toma lo propio de tu colegio y lo valida contra los mínimos nacionales.
         </div>
-      )}
+      </div>
+
+      {/* Capa 1 — Documentos del establecimiento */}
+      <div className="flex items-center gap-2 mb-3">
+        <span style={{ background: C.ok }} className="w-2 h-2 rounded-full" />
+        <span style={{ color: C.ink }} className="text-sm font-semibold">Capa 1 · Documentos de tu establecimiento</span>
+      </div>
+      <div className="flex flex-col gap-2.5 mb-7">
+        {(docs || []).map((d) => (
+          <div key={d.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${C.ok}` }} className="rounded-lg p-4">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div style={{ color: C.ink }} className="text-sm font-medium">{d.name}</div>
+              <div className="flex items-center gap-2">
+                <span style={{ background: (d.status === "Cargado" ? C.ok : C.warn) + "22", color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{d.status} · {d.updated}</span>
+                {d.url && <a href={d.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir</a>}
+              </div>
+            </div>
+            {feeds[d.id] && <div style={{ color: C.textSoft }} className="text-xs mt-1">{feeds[d.id]}</div>}
+          </div>
+        ))}
+        <div style={{ color: C.textSoft }} className="text-[11px]">Carga o enlaza estos documentos en <b style={{ color: C.text }}>Plan de convivencia y PME</b>.</div>
+      </div>
+
+      {/* Capa 2 — Normativa nacional */}
+      <div className="flex items-center gap-2 mb-3">
+        <span style={{ background: C.primary }} className="w-2 h-2 rounded-full" />
+        <span style={{ color: C.ink }} className="text-sm font-semibold">Capa 2 · Normativa nacional</span>
+      </div>
       <div className="flex flex-col gap-2.5">
         {NORMATIVA_LIBRARY.map((n) => (
-          <div key={n.name} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-start gap-3">
-            <Scale size={16} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
+          <div key={n.name} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${C.primary}` }} className="rounded-lg p-4 flex items-start gap-3">
+            <Scale size={16} style={{ color: C.primary }} className="mt-0.5 shrink-0" />
             <div><div style={{ color: C.ink }} className="text-sm font-medium">{n.name}</div><div style={{ color: C.textSoft }} className="text-sm mt-0.5">{n.desc}</div></div>
           </div>
         ))}
@@ -1784,19 +1825,40 @@ function NormativaPage({ docs }) {
   );
 }
 
+function InstChip({ id, institutions }) {
+  const inst = institutions.find((i) => i.id === id);
+  const color = INST_TYPE_COLORS[inst?.type] || "#5F6368";
+  return (
+    <span style={{ background: color + "18", color, border: `1px solid ${color}55` }} className="text-xs font-medium px-2.5 py-1 rounded-full inline-flex items-center gap-1.5">
+      <span style={{ background: color }} className="w-1.5 h-1.5 rounded-full inline-block" /> {inst?.label}
+    </span>
+  );
+}
+
 function RedesPage({ institutions }) {
+  const types = Object.entries(INST_TYPE_COLORS);
   return (
     <div className="max-w-3xl">
-      <PageHead title="Redes de derivación" subtitle="Instituciones disponibles según el tipo de caso." right={<Toolbar onPrint={printView} />} />
-      <div className="flex flex-col gap-2.5">
-        {Object.values(CASE_TYPES).map((t) => (
-          <div key={t.label} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
-            <div style={{ color: C.ink }} className="text-sm font-medium mb-1.5">{t.label}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {t.network.map((id) => <span key={id} style={{ background: C.paper, color: C.textSoft, border: `1px solid ${C.paperLine}` }} className="text-xs px-2 py-1 rounded-full">{institutions.find((i) => i.id === id)?.label}</span>)}
-            </div>
-          </div>
+      <PageHead title="Redes de derivación" subtitle="Instituciones disponibles según el tipo de caso. El color indica el tipo de red." right={<Toolbar onPrint={printView} />} />
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-5">
+        {types.map(([t, color]) => (
+          <span key={t} className="inline-flex items-center gap-1.5 text-[11px] capitalize" style={{ color: C.textSoft }}>
+            <span style={{ background: color }} className="w-2.5 h-2.5 rounded-full inline-block" /> {t}
+          </span>
         ))}
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {Object.values(CASE_TYPES).map((t) => {
+          const accent = instColor(t.network[0], institutions);
+          return (
+            <div key={t.label} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${accent}` }} className="rounded-lg p-4">
+              <div style={{ color: C.ink }} className="text-sm font-medium mb-2">{t.label}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {t.network.map((id) => <InstChip key={id} id={id} institutions={institutions} />)}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
