@@ -392,12 +392,14 @@ function CaseWizard({ onCreate, onCancel }) {
   const [level, setLevel] = useState("basica");
   const [relato, setRelato] = useState("");
   const [analysis, setAnalysis] = useState(null);
+  const [f, setF] = useState({ fechaHecho: "", hora: "", lugar: "", curso: "", testigos: "", adultosRef: "" });
   const chosenKey = mode === "predef" ? typeKey : analysis?.best?.key;
+  const setField = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
 
   function create() {
     if (!chosenKey) return;
     const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
-    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level }));
+    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f }));
   }
 
   return (
@@ -451,6 +453,17 @@ function CaseWizard({ onCreate, onCancel }) {
           <input value={involved} onChange={(e) => setInvolved(e.target.value)} placeholder="Ej: Estudiante 6°A (iniciales R.P.)"
             className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
         </div>
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Datos del incidente</label>
+          <div className="mt-1.5 grid grid-cols-2 gap-2.5">
+            <input type="date" value={f.fechaHecho} onChange={(e) => setField("fechaHecho", e.target.value)} title="Fecha del hecho" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <input type="time" value={f.hora} onChange={(e) => setField("hora", e.target.value)} title="Hora del hecho" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <input value={f.lugar} onChange={(e) => setField("lugar", e.target.value)} placeholder="Lugar (ej: patio, sala 12)" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <input value={f.curso} onChange={(e) => setField("curso", e.target.value)} placeholder="Curso (ej: 7°B)" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <input value={f.testigos} onChange={(e) => setField("testigos", e.target.value)} placeholder="Testigos" className="rounded-md p-2.5 text-sm col-span-2" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <input value={f.adultosRef} onChange={(e) => setField("adultosRef", e.target.value)} placeholder="Adultos referentes / programas de protección asociados" className="rounded-md p-2.5 text-sm col-span-2" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          </div>
+        </div>
         {chosenKey && (
           <div style={{ background: C.paper, border: `1px dashed ${C.seal}` }} className="rounded-md p-3 text-xs flex items-start gap-2">
             <Network size={14} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
@@ -503,6 +516,20 @@ function CaseDetail({ c, role, setCases, templates, institutions, onBack }) {
         )}
       </div>
       <div style={{ color: C.textSoft }} className="text-sm mb-6">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</div>
+
+      {!isFamily && (c.fechaHecho || c.hora || c.lugar || c.curso || c.testigos || c.adultosRef) && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Datos del incidente</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
+            {c.fechaHecho && <div><span style={{ color: C.textSoft }}>Fecha: </span><span style={{ color: C.ink }}>{c.fechaHecho}</span></div>}
+            {c.hora && <div><span style={{ color: C.textSoft }}>Hora: </span><span style={{ color: C.ink }}>{c.hora}</span></div>}
+            {c.curso && <div><span style={{ color: C.textSoft }}>Curso: </span><span style={{ color: C.ink }}>{c.curso}</span></div>}
+            {c.lugar && <div className="col-span-2 sm:col-span-1"><span style={{ color: C.textSoft }}>Lugar: </span><span style={{ color: C.ink }}>{c.lugar}</span></div>}
+            {c.testigos && <div className="col-span-2 sm:col-span-3"><span style={{ color: C.textSoft }}>Testigos: </span><span style={{ color: C.ink }}>{c.testigos}</span></div>}
+            {c.adultosRef && <div className="col-span-2 sm:col-span-3"><span style={{ color: C.textSoft }}>Adultos referentes / programas: </span><span style={{ color: C.ink }}>{c.adultosRef}</span></div>}
+          </div>
+        </div>
+      )}
 
       {!isFamily && (
         <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4 flex items-center justify-between gap-3 flex-wrap">

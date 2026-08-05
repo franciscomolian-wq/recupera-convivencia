@@ -49,6 +49,11 @@ export const INSTITUTIONS = [
   { id: "salud", label: "Salud / Salud mental", type: "salud", email: "" },
   { id: "mutual", label: "Mutual de seguridad", type: "laboral", email: "" },
   { id: "psicosocial", label: "Equipo psicosocial interno", type: "interno", email: "" },
+  { id: "senda", label: "SENDA (prevención de drogas)", type: "salud", email: "" },
+  { id: "seguroEscolar", label: "Seguro Escolar (Ley 16.744)", type: "salud", email: "" },
+  { id: "cesfam", label: "CESFAM / Hospital", type: "salud", email: "" },
+  { id: "oln", label: "Oficina Local de la Niñez (OLN)", type: "protección", email: "" },
+  { id: "defensoria", label: "Defensoría de la Niñez", type: "protección", email: "" },
 ];
 
 /* ---------------------------------------------------------------
@@ -156,6 +161,90 @@ export const CASE_TYPES = {
       { title: "Seguimiento y cierre", days: 30, role: "Directora del jardín", basis: "Normativa JUNJI — monitoreo" },
     ],
   },
+  ciberacoso: {
+    label: "Ciberacoso / acoso por medios digitales",
+    relacion: "Estudiante ↔ Estudiante (medios digitales)",
+    levels: ["basica", "media"],
+    keywords: ["ciberacoso", "ciberbullying", "redes sociales", "whatsapp", "instagram", "tiktok", "captura", "viralizaron", "difusión de imágenes", "grooming", "meme"],
+    network: ["psicosocial", "super", "pdi"],
+    steps: [
+      { title: "Acogida, registro y resguardo de la evidencia digital (capturas, enlaces)", days: 2, role: "Coordinador de Convivencia", basis: "Ley 21.809 — canal de denuncia; resguardo probatorio" },
+      { title: "Evaluación de riesgo y medidas de protección (incluye ciberespacio)", days: 3, role: "Coordinador de Convivencia", basis: "Ley 21.809 — medidas de protección" },
+      { title: "Investigación imparcial; si hay delito, denuncia a PDI Cibercrimen", days: 15, role: "Coordinador de Convivencia", basis: "Ley 21.809; Código Procesal Penal art. 175-176" },
+      { title: "Informe, medidas formativas/disciplinarias y notificación a familias", days: 40, role: "Director/a", basis: "Ley 21.809 — plazo máximo 2 meses; Ley 20.845 debido proceso" },
+      { title: "Seguimiento y cierre", days: 80, role: "Coordinador de Convivencia", basis: "Ley 21.809 — monitoreo" },
+    ],
+  },
+  drogas: {
+    label: "Consumo o tráfico de drogas / alcohol",
+    relacion: "Estudiante(s)",
+    levels: ["basica", "media", "adultos"],
+    keywords: ["droga", "marihuana", "alcohol", "consumo", "tráfico", "microtráfico", "pastillas", "sustancias", "porros"],
+    network: ["senda", "carabineros", "salud", "opd"],
+    steps: [
+      { title: "Acogida y resguardo del/de la estudiante; registro confidencial", days: 1, role: "Coordinador de Convivencia", basis: "Ley 21.809 — protección; enfoque de cuidado no punitivo en consumo" },
+      { title: "Si hay tráfico/microtráfico: denuncia obligatoria a Carabineros/PDI/Fiscalía", days: 1, role: "Director/a", basis: "Ley 20.000; Código Procesal Penal art. 175-176" },
+      { title: "Derivación a SENDA / salud para evaluación y tratamiento", days: 3, role: "Equipo psicosocial", basis: "Política de prevención SENDA-MINEDUC" },
+      { title: "Entrevista con apoderados y plan de acompañamiento", days: 10, role: "Coordinador de Convivencia", basis: "Ley 21.809 — corresponsabilidad familiar" },
+      { title: "Seguimiento del plan y coordinación con la red", days: 60, role: "Equipo psicosocial", basis: "Ley 21.809 — monitoreo" },
+    ],
+  },
+  accidenteEscolar: {
+    label: "Accidente escolar",
+    relacion: "Estudiante",
+    levels: ["parvulo", "basica", "media", "adultos"],
+    keywords: ["accidente", "caída", "golpe", "fractura", "herida", "enfermería", "lesión", "recreo", "trayecto"],
+    network: ["salud", "seguroEscolar", "cesfam"],
+    steps: [
+      { title: "Atención inmediata / primeros auxilios y resguardo del/de la estudiante", days: 0, role: "Inspectoría / Encargado de primeros auxilios", basis: "Ley 16.744 — Seguro Escolar; deber de cuidado" },
+      { title: "Activación del Seguro Escolar y traslado a la red de salud si corresponde", days: 0, role: "Director/a / Inspectoría", basis: "Ley 16.744 — Seguro Escolar de Accidentes" },
+      { title: "Aviso inmediato al apoderado", days: 0, role: "Inspectoría General", basis: "Deber de información a la familia" },
+      { title: "Registro y Declaración Individual de Accidente Escolar (DIAE)", days: 1, role: "Encargado de Prevención", basis: "Ley 16.744 — declaración del accidente" },
+      { title: "Seguimiento del estado de salud y reintegro", days: 10, role: "Inspectoría General", basis: "Deber de acompañamiento" },
+    ],
+  },
+  situacionRiesgo: {
+    label: "Situación de riesgo / salud mental (autolesión, ideación suicida)",
+    relacion: "Estudiante",
+    levels: ["basica", "media", "adultos"],
+    keywords: ["autolesión", "ideación", "suicida", "cortes", "riesgo", "crisis", "ansiedad", "depresión", "autoflagelación", "salud mental"],
+    network: ["salud", "psicosocial", "cesfam", "opd"],
+    steps: [
+      { title: "Contención inmediata y resguardo; no dejar solo/a al/la estudiante", days: 0, role: "Dupla psicosocial / Orientación", basis: "Protocolo de retención y prevención — MINEDUC" },
+      { title: "Comunicación al apoderado y activación de la red de apoyo", days: 1, role: "Coordinador de Convivencia", basis: "Corresponsabilidad y deber de protección" },
+      { title: "Derivación a salud / salud mental (CESFAM u hospital)", days: 2, role: "Equipo psicosocial", basis: "Ley 21.809 — bienestar y salud mental" },
+      { title: "Plan de acompañamiento y medidas de resguardo escolar", days: 5, role: "Orientación / Convivencia", basis: "Protocolo MINEDUC de prevención" },
+      { title: "Seguimiento coordinado con la red de salud", days: 45, role: "Equipo psicosocial", basis: "Ley 21.809 — monitoreo continuo" },
+    ],
+  },
+  disciplinario: {
+    label: "Incidente disciplinario (falta al reglamento)",
+    relacion: "Estudiante(s)",
+    levels: ["basica", "media", "adultos"],
+    keywords: ["falta", "reglamento", "indisciplina", "desafío", "conducta", "interrupción", "irrespeto", "anotación"],
+    network: ["psicosocial"],
+    steps: [
+      { title: "Registro de la falta en la hoja de vida", days: 1, role: "Inspectoría General / Docente", basis: "Reglamento Interno de Convivencia (RICE)" },
+      { title: "Tipificación de la falta (leve/grave/gravísima) según el reglamento", days: 2, role: "Inspectoría General", basis: "RICE — gradualidad y proporcionalidad" },
+      { title: "Entrevista y descargos del/de la estudiante (debido proceso)", days: 5, role: "Inspectoría General", basis: "Ley 20.845 — debido proceso y derecho a defensa" },
+      { title: "Aplicación de medida formativa/disciplinaria proporcional", days: 8, role: "Director/a / Inspectoría", basis: "RICE; Ley 20.845 — proporcionalidad" },
+      { title: "Notificación al apoderado y registro del acuerdo", days: 10, role: "Profesor/a Jefe", basis: "Deber de información y corresponsabilidad" },
+      { title: "Seguimiento formativo", days: 30, role: "Profesor/a Jefe / Convivencia", basis: "RICE — enfoque formativo" },
+    ],
+  },
+  denunciaInterna: {
+    label: "Denuncia interna (canal de convivencia)",
+    relacion: "Cualquier integrante de la comunidad",
+    levels: ["parvulo", "basica", "media", "adultos"],
+    keywords: ["denuncia", "reclamo", "canal", "confidencial", "anónima", "buzón"],
+    network: ["psicosocial", "super"],
+    steps: [
+      { title: "Recepción confidencial de la denuncia (con reserva de identidad)", days: 1, role: "Coordinador de Convivencia", basis: "Ley 21.809 — canal de denuncia seguro y confidencial" },
+      { title: "Evaluación de admisibilidad y derivación al protocolo pertinente", days: 2, role: "Coordinador de Convivencia", basis: "Ley 21.809 — pertinencia del procedimiento" },
+      { title: "Medidas de resguardo hacia el/la denunciante", days: 3, role: "Coordinador de Convivencia", basis: "Ley 21.809 — protección frente a represalias" },
+      { title: "Tramitación según el tipo de situación y respuesta al denunciante", days: 10, role: "Equipo de Convivencia", basis: "Ley 21.809 — debido proceso" },
+    ],
+  },
 };
 
 /* ---------------------------------------------------------------
@@ -167,7 +256,13 @@ export const ROLES = {
   director: { label: "Director/a", scope: "audit" },
   sostenedor: { label: "Sostenedor", scope: "audit" },
   superintendencia: { label: "Superintendencia de Educación", scope: "audit" },
-  docente: { label: "Docente / Profesor Jefe / UTP / Inspector", scope: "limited" },
+  inspectoria: { label: "Inspectoría General", scope: "admin" },
+  pie: { label: "PIE (Programa de Integración Escolar)", scope: "limited" },
+  orientacion: { label: "Orientación", scope: "limited" },
+  utp: { label: "UTP", scope: "limited" },
+  profesorJefe: { label: "Profesor/a Jefe", scope: "limited" },
+  docente: { label: "Docente", scope: "limited" },
+  asistente: { label: "Asistente de la Educación", scope: "limited" },
   apoderado: { label: "Apoderado/a", scope: "family" },
 };
 
@@ -206,8 +301,11 @@ export const USERS = [
   { id: "u2", name: "Director Liceo Ejemplo", role: "director", establishmentId: "e1" },
   { id: "u3", name: "Sostenedor Corp. Quilpué", role: "sostenedor", establishmentId: "e1" },
   { id: "u4", name: "Fiscalizador Superintendencia", role: "superintendencia", establishmentId: "e1" },
-  { id: "u5", name: "Profesor Jefe 7°B", role: "docente", establishmentId: "e1" },
+  { id: "u5", name: "Profesor Jefe 7°B", role: "profesorJefe", establishmentId: "e1" },
   { id: "u6", name: "Apoderado/a J.M.", role: "apoderado", establishmentId: "e1" },
+  { id: "u7", name: "Inspectoría General", role: "inspectoria", establishmentId: "e1" },
+  { id: "u8", name: "Equipo PIE", role: "pie", establishmentId: "e1" },
+  { id: "u9", name: "Orientación", role: "orientacion", establishmentId: "e1" },
 ];
 
 /* ---------------------------------------------------------------
