@@ -361,7 +361,7 @@ function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLo
     (key === "micaso" && view === "caso");
 
   return (
-    <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className={`w-72 shrink-0 flex flex-col h-screen fixed lg:sticky top-0 left-0 z-40 print:hidden transition-transform duration-200 ${mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"}`}>
+    <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className={`drawer ${mobileOpen ? "open" : ""} w-72 shrink-0 flex flex-col h-screen z-40 print:hidden`}>
       {/* Marca + barra de 4 colores de Google */}
       <div className="px-5 pt-6 pb-4">
         <div className="flex items-center gap-3">
