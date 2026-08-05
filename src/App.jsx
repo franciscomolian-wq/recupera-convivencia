@@ -7,6 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
+  Inbox, Archive, PenLine, ExternalLink,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -15,6 +16,7 @@ import {
   UF_VALUE_CLP, MONTHLY_REVENUE_UF, STUDENTS, MEASURE_TYPES,
   ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
   GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
+  DOC_CATEGORIES, INITIAL_DOCUMENTS,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
@@ -61,6 +63,7 @@ export default function App() {
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [events, setEvents] = useState(INITIAL_EVENTS);
   const [gestiones, setGestiones] = useState(INITIAL_GESTIONES);
+  const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
 
   if (!session) return <Login users={users} onLogin={setSession} />;
 
@@ -69,6 +72,7 @@ export default function App() {
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
+    documents, setDocuments,
   };
 
   const role = ROLES[session.role];
@@ -220,9 +224,9 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "reportes", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
-  audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "reportes", "gestion", "auditoria", "normativa"],
-  limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "formatos", "normativa"],
+  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "reportes", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "gestion", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
 };
 const PORTAL_NAV = {
@@ -234,6 +238,8 @@ const PORTAL_NAV = {
   pie: { label: "Integración PIE", icon: Puzzle },
   agenda: { label: "Agenda institucional", icon: Calendar },
   comunicacion: { label: "Comunicación interna", icon: MessageSquare },
+  apoderados: { label: "Comunicación con apoderados", icon: Inbox },
+  documental: { label: "Gestión documental", icon: Archive },
   gestion: { label: "Redes externas (gestiones)", icon: Share2 },
   nuevo: { label: "Nuevo caso", icon: Plus },
   reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
@@ -275,6 +281,8 @@ function PortalApp(props) {
         {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={role} />}
         {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={role} />}
         {view === "comunicacion" && <MessagesPage messages={props.messages} setMessages={props.setMessages} session={session} role={role} />}
+        {view === "apoderados" && <ApoderadosPage students={students} setStudents={setStudents} role={role} />}
+        {view === "documental" && <DocumentalPage documents={props.documents} setDocuments={props.setDocuments} cases={cases} role={role} />}
         {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={role} />}
         {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
         {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
@@ -990,6 +998,163 @@ function AlertsPage({ cases, students, gestiones, onOpenCase, onOpenStudent, onG
       <div className="flex flex-col gap-2 mb-6">{altas.map(card)}</div>
       {medias.length > 0 && <div style={{ color: C.warn }} className="text-xs font-medium uppercase tracking-wide mb-2">Prioridad media</div>}
       <div className="flex flex-col gap-2">{medias.map(card)}</div>
+    </div>
+  );
+}
+
+/* =================== MÓDULO 7 — COMUNICACIÓN APODERADOS ========== */
+function ApoderadosPage({ students, setStudents, role }) {
+  const readOnly = role.scope === "audit";
+  const [sid, setSid] = useState(students[0]?.id);
+  const s = students.find((x) => x.id === sid);
+  const [cita, setCita] = useState({ fecha: "", hora: "", motivo: "" });
+  const [acu, setAcu] = useState({ fecha: "", acuerdo: "" });
+  const [doc, setDoc] = useState("");
+  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
+  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  function updItem(kind, id, patch) { update((x) => ({ ...x, [kind]: (x[kind] || []).map((it) => (it.id === id ? { ...it, ...patch } : it)) })); }
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const citColor = { Pendiente: C.warn, Confirmada: C.ok, Reagendar: C.admin };
+  const firmar = (kind, id) => updItem(kind, id, { firma: { por: s.apoderadoNombre, at: new Date().toISOString().slice(0, 10) } });
+  const firmaTag = (f) => f ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1"><PenLine size={11} /> Firmado por {f.por} · {f.at}</span> : null;
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Comunicación con apoderados" subtitle="Citaciones con confirmación y reagendamiento, entrevistas y acuerdos con seguimiento, firma digital y documentos enviados. Todo queda en el historial del apoderado." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "apoderados.json")} />} />
+      <div className="mb-4 print:hidden">
+        <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante</label>
+        <select value={sid} onChange={(e) => setSid(e.target.value)} className="mt-1.5 w-full max-w-sm rounded-md p-2.5 text-sm" style={inp}>{students.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.curso}</option>)}</select>
+      </div>
+      {s && (
+        <>
+          <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4 flex items-center gap-3">
+            <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"><UserCircle size={20} color="#fff" /></div>
+            <div><div style={{ color: C.ink }} className="text-sm font-medium">{s.apoderadoNombre || "Apoderado/a"}</div><div style={{ color: C.textSoft }} className="text-xs">{s.apoderadoEmail || "sin correo"} · apoderado/a de {s.name}</div></div>
+          </div>
+
+          <ExpBlock icon={CalendarClock} title={`Citaciones (${(s.citacionesApo || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.citacionesApo || []).map((c) => (
+                <div key={c.id} style={{ background: C.paper }} className="rounded-md p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div><span style={{ color: C.ink }} className="font-medium">{c.motivo}</span> <span style={{ color: C.textSoft }}>· {c.fecha} {c.hora}{c.nuevaFecha ? ` → reagenda: ${c.nuevaFecha}` : ""}</span></div>
+                    <span style={{ background: (citColor[c.estado] || C.textSoft) + "22", color: citColor[c.estado] || C.textSoft }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{c.estado}</span>
+                  </div>
+                  {c.firma && <div className="mt-1.5">{firmaTag(c.firma)}</div>}
+                  {!readOnly && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap print:hidden">
+                      <select value={c.estado} onChange={(e) => updItem("citacionesApo", c.id, { estado: e.target.value })} className="rounded-md p-1.5 text-xs" style={inp}><option>Pendiente</option><option>Confirmada</option><option>Reagendar</option></select>
+                      {c.estado === "Reagendar" && <input type="date" value={c.nuevaFecha || ""} onChange={(e) => updItem("citacionesApo", c.id, { nuevaFecha: e.target.value })} className="rounded-md p-1.5 text-xs" style={inp} />}
+                      {!c.firma && <button onClick={() => firmar("citacionesApo", c.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Firma digital</button>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input type="date" value={cita.fecha} onChange={(e) => setCita({ ...cita, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input type="time" value={cita.hora} onChange={(e) => setCita({ ...cita, hora: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input value={cita.motivo} onChange={(e) => setCita({ ...cita, motivo: e.target.value })} placeholder="Motivo de la citación" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+                <Btn onClick={() => { if (cita.motivo.trim()) { add("citacionesApo", { ...cita, estado: "Pendiente", nuevaFecha: "", firma: null }); setCita({ fecha: "", hora: "", motivo: "" }); } }}><Send size={14} /> Citar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+
+          <ExpBlock icon={CheckCircle2} title={`Entrevistas y acuerdos (${(s.acuerdosApo || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">
+              {(s.acuerdosApo || []).map((a) => (
+                <div key={a.id} style={{ background: C.paper }} className="rounded-md p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="flex items-center gap-2"><input type="checkbox" checked={a.cumplido} onChange={() => !readOnly && updItem("acuerdosApo", a.id, { cumplido: !a.cumplido })} /><span style={{ color: a.cumplido ? C.textSoft : C.ink, textDecoration: a.cumplido ? "line-through" : "none" }}>{a.acuerdo}</span></label>
+                    <span style={{ color: C.textSoft }}>{a.fecha}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {a.firma ? firmaTag(a.firma) : (!readOnly && <button onClick={() => firmar("acuerdosApo", a.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1 print:hidden" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Firma digital</button>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input type="date" value={acu.fecha} onChange={(e) => setAcu({ ...acu, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                <input value={acu.acuerdo} onChange={(e) => setAcu({ ...acu, acuerdo: e.target.value })} placeholder="Acuerdo con el apoderado" className="rounded-md p-2 text-sm flex-1 min-w-[180px]" style={inp} />
+                <Btn onClick={() => { if (acu.acuerdo.trim()) { add("acuerdosApo", { ...acu, cumplido: false, firma: null }); setAcu({ fecha: "", acuerdo: "" }); } }}><Plus size={14} /> Agregar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+
+          <ExpBlock icon={FileText} title={`Documentos enviados (${(s.docsApo || []).length})`}>
+            <div className="flex flex-col gap-1.5 mb-3">{(s.docsApo || []).map((d) => <div key={d.id} style={{ color: C.textSoft }} className="text-xs flex items-center gap-1.5"><Paperclip size={11} /> <span style={{ color: C.ink }}>{d.nombre}</span> · {d.fecha}</div>)}</div>
+            {!readOnly && (
+              <div className="flex flex-wrap gap-2 print:hidden">
+                <input value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="Nombre del documento a enviar" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+                <Btn onClick={() => { if (doc.trim()) { add("docsApo", { nombre: doc, fecha: new Date().toISOString().slice(0, 10) }); setDoc(""); } }}><Send size={14} /> Enviar</Btn>
+              </div>
+            )}
+          </ExpBlock>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =================== MÓDULO 9 — GESTIÓN DOCUMENTAL =============== */
+function DocumentalPage({ documents, setDocuments, cases, role }) {
+  const readOnly = role.scope === "audit";
+  const [d, setD] = useState({ nombre: "", categoria: "Informe", caso: "", fecha: "", url: "" });
+  const [fcat, setFcat] = useState("");
+  const [q, setQ] = useState("");
+  const rows = documents.filter((x) => (!fcat || x.categoria === fcat) && (!q || x.nombre.toLowerCase().includes(q.toLowerCase())));
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  function add() { if (d.nombre.trim()) { setDocuments([{ id: "d" + Date.now(), ...d }, ...documents]); setD({ nombre: "", categoria: "Informe", caso: "", fecha: "", url: "" }); } }
+
+  return (
+    <div className="max-w-4xl">
+      <PageHead title="Gestión documental" subtitle="Repositorio de informes, actas, protocolos, oficios, resoluciones, certificados, consentimientos y evidencias. Enlazable a Google Drive." right={<Toolbar onPrint={printView} onExport={() => exportJSON(documents, "documentos.json")} onImport={(data) => Array.isArray(data) && setDocuments(data)} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <StatCard label="Documentos" value={documents.length} color={C.ink} />
+        <StatCard label="Actas" value={documents.filter((x) => x.categoria === "Acta").length} color={C.ink} />
+        <StatCard label="Consentimientos" value={documents.filter((x) => x.categoria === "Consentimiento").length} color={C.ink} />
+        <StatCard label="Protocolos" value={documents.filter((x) => x.categoria === "Protocolo").length} color={C.ink} />
+      </div>
+      {!readOnly && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-5 print:hidden">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Agregar documento</div>
+          <div className="flex flex-wrap gap-2">
+            <input value={d.nombre} onChange={(e) => setD({ ...d, nombre: e.target.value })} placeholder="Nombre del documento" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+            <select value={d.categoria} onChange={(e) => setD({ ...d, categoria: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{DOC_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+            <select value={d.caso} onChange={(e) => setD({ ...d, caso: e.target.value })} className="rounded-md p-2 text-sm" style={inp}><option value="">Sin caso</option>{cases.map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}</select>
+            <input type="date" value={d.fecha} onChange={(e) => setD({ ...d, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <input value={d.url} onChange={(e) => setD({ ...d, url: e.target.value })} placeholder="Enlace a Drive (opcional)" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+            <label className="text-sm px-4 py-2 rounded-full cursor-pointer inline-flex items-center gap-1.5 mbtn-outline" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><Upload size={14} /> Archivo<input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setD({ ...d, nombre: d.nombre || f.name }); e.target.value = ""; }} /></label>
+            <Btn onClick={add}><Plus size={14} /> Guardar</Btn>
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2 mb-3 flex-wrap print:hidden">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…" className="rounded-md p-2 text-sm" style={inp} />
+        <select value={fcat} onChange={(e) => setFcat(e.target.value)} className="rounded-md p-2 text-sm" style={inp}><option value="">Todas las categorías</option>{DOC_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+      </div>
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.paper, color: C.textSoft }} className="text-xs uppercase"><th className="text-left p-3">Documento</th><th className="text-left p-3">Categoría</th><th className="text-left p-3">Caso</th><th className="text-left p-3">Fecha</th><th className="text-left p-3 print:hidden">Acción</th></tr></thead>
+          <tbody>
+            {rows.map((x) => (
+              <tr key={x.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+                <td style={{ color: C.ink }} className="p-3">{x.nombre}</td>
+                <td className="p-3"><span style={{ background: C.paper, color: C.seal, border: `1px solid ${C.paperLine}` }} className="text-[11px] px-2 py-0.5 rounded-full">{x.categoria}</span></td>
+                <td style={{ ...mono, color: C.textSoft }} className="p-3 text-xs">{x.caso || "—"}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.fecha || "—"}</td>
+                <td className="p-3 print:hidden">
+                  {x.url ? <a href={x.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir en Drive</a> : <span style={{ color: C.textSoft }} className="text-xs">—</span>}
+                  {!readOnly && <button onClick={() => setDocuments(documents.filter((y) => y.id !== x.id))} style={{ color: C.textSoft }} className="ml-3"><Trash2 size={13} /></button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

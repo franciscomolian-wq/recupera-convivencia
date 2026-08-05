@@ -71,6 +71,15 @@ export const INITIAL_GESTIONES = [
   { id: "g3", tipo: "Medida judicial", institucion: "Tribunal de Familia", caso: "RC-2026-021", fecha: "2026-07-25", detalle: "Medida cautelar de protección dictada.", estado: "En curso" },
 ];
 
+/* Gestión documental (Módulo 9) — categorías y repositorio */
+export const DOC_CATEGORIES = ["Informe", "Acta", "Protocolo", "Formulario", "Oficio", "Resolución", "Certificado", "Consentimiento", "Evidencia", "Otro"];
+
+export const INITIAL_DOCUMENTS = [
+  { id: "d1", nombre: "Acta de entrevista inicial — RC-2026-014", categoria: "Acta", caso: "RC-2026-014", fecha: "2026-07-01", url: "" },
+  { id: "d2", nombre: "Protocolo de acoso escolar (RICE)", categoria: "Protocolo", caso: "", fecha: "2026-03-15", url: "" },
+  { id: "d3", nombre: "Consentimiento informado apoderado J.M.", categoria: "Consentimiento", caso: "RC-2026-014", fecha: "2026-07-02", url: "" },
+];
+
 /* ---------------------------------------------------------------
    TIPOS DE CASO (situaciones predefinidas)
    Cada uno declara: relación involucrada, niveles aplicables,
@@ -330,9 +339,13 @@ export const STUDENTS = [
     pieAdecuaciones: [{ id: "pa1", fecha: "2026-06-25", descripcion: "Tiempo adicional en evaluaciones." }],
     pieEstrategias: [{ id: "pe1", descripcion: "Refuerzo lector individual", paec: true }],
     pieReuniones: [{ id: "pr1", fecha: "2026-07-01", participantes: "PIE, Prof. Jefe, Convivencia", acuerdos: "Monitoreo mensual de avances." }],
+    apoderadoNombre: "María (apoderada de J.M.)", apoderadoEmail: "apoderado.jm@correo.cl",
+    citacionesApo: [{ id: "ca1", fecha: "2026-08-06", hora: "10:30", motivo: "Informar avance del caso", estado: "Pendiente", nuevaFecha: "", firma: null }],
+    acuerdosApo: [{ id: "aa1", fecha: "2026-06-30", acuerdo: "Reforzar acompañamiento en el hogar", cumplido: false, firma: null }],
+    docsApo: [{ id: "da1", fecha: "2026-07-01", nombre: "Acta de entrevista inicial.pdf" }],
   },
-  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [] },
-  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [] },
+  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [], apoderadoNombre: "Apoderado/a de F.T.", apoderadoEmail: "apoderado.ft@correo.cl", citacionesApo: [], acuerdosApo: [], docsApo: [] },
+  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [], apoderadoNombre: "Apoderado/a de C.R.", apoderadoEmail: "apoderado.cr@correo.cl", citacionesApo: [], acuerdosApo: [], docsApo: [] },
 ];
 
 export const MEASURE_TYPES = [
