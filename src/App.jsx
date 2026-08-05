@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -306,15 +306,25 @@ function PortalApp(props) {
   const selectedCase = cases.find((c) => c.id === selectedCaseId);
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
   const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
-  function openCase(id) { setSelectedCaseId(id); setView("caso"); }
-  function openStudent(id) { setSelectedStudentId(id); setView("expediente"); }
+  const [mobileOpen, setMobileOpen] = useState(false);
+  function go(v) { setView(v); setMobileOpen(false); }
+  function openCase(id) { setSelectedCaseId(id); setView("caso"); setMobileOpen(false); }
+  function openStudent(id) { setSelectedStudentId(id); setView("expediente"); setMobileOpen(false); }
 
   return (
     <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
-      <Sidebar navKeys={navKeys} navMap={PORTAL_NAV} view={view} setView={setView}
-        openCase={openCase} session={session} role={role} onLogout={() => setSession(null)} accent={C.primary} />
+      <Sidebar navKeys={navKeys} navMap={PORTAL_NAV} view={view} setView={go}
+        openCase={openCase} session={session} role={role} onLogout={() => setSession(null)}
+        mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      {mobileOpen && <div className="lg:hidden fixed inset-0 bg-black/40 z-30" onClick={() => setMobileOpen(false)} />}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="lg:hidden flex items-center gap-3 px-4 h-14 shrink-0 sticky top-0 z-20 print:hidden" style={{ background: C.sidebarBg, borderBottom: `1px solid ${C.sidebarBorder}` }}>
+          <button onClick={() => setMobileOpen(true)} style={{ color: C.ink }} aria-label="Abrir menú"><Menu size={22} /></button>
+          <div style={{ ...serif, color: C.ink }} className="text-base">Recupera Convivencia</div>
+          <div className="ml-auto"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
+        </div>
       <main className="flex-1 p-6 sm:p-10 min-w-0">
-        <div className="flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
+        <div className="hidden lg:flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
         {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
         {view === "nuevo" && <CaseWizard students={students} setStudents={setStudents} onCreate={(c) => { setCases([c, ...cases]); setSelectedCaseId(c.id); setView("caso"); }} onCancel={() => setView("dashboard")} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
@@ -338,11 +348,12 @@ function PortalApp(props) {
         {view === "perfiles" && <PerfilesPage users={props.users} cases={cases} />}
         {view === "configuracion" && <ConfigPage {...props} />}
       </main>
+      </div>
     </div>
   );
 }
 
-function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout }) {
+function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout, mobileOpen, setMobileOpen }) {
   const activeFor = (key) =>
     view === key ||
     (key === "casos" && view === "caso") ||
@@ -350,7 +361,7 @@ function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLo
     (key === "micaso" && view === "caso");
 
   return (
-    <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
+    <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className={`w-72 shrink-0 flex flex-col h-screen fixed lg:sticky top-0 left-0 z-40 print:hidden transition-transform duration-200 ${mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"}`}>
       {/* Marca + barra de 4 colores de Google */}
       <div className="px-5 pt-6 pb-4">
         <div className="flex items-center gap-3">
@@ -359,6 +370,7 @@ function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLo
             <div style={{ ...serif, color: C.ink }} className="text-[17px] leading-tight">Recupera Convivencia</div>
             <div style={{ ...mono, color: C.sidebarTextSoft }} className="text-[9.5px] tracking-widest uppercase">Convivencia educativa</div>
           </div>
+          <button onClick={() => setMobileOpen && setMobileOpen(false)} className="lg:hidden ml-auto" style={{ color: C.sidebarTextSoft }} aria-label="Cerrar menú"><X size={20} /></button>
         </div>
         <div className="flex h-1 rounded-full overflow-hidden mt-4">
           <div className="flex-1" style={{ background: "#4285F4" }} />
@@ -547,7 +559,7 @@ function ExpBlock({ icon: Icon, title, children }) {
 function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
   const readOnly = role.scope === "audit" || role.scope === "family";
   const scases = cases.filter((c) => c.studentId === s.id);
-  const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "" });
+  const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "", foto: null });
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
   const [com, setCom] = useState("");
   const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "" });
@@ -596,16 +608,26 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           {(s.entrevistas || []).map((e) => (
             <div key={e.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs">
               <div style={{ color: C.ink }} className="font-medium">{e.con} · {e.fecha || "sin fecha"}</div>
-              <div style={{ color: C.textSoft }}>{e.resumen}</div>
+              {e.resumen && <div style={{ color: C.textSoft }}>{e.resumen}</div>}
+              {e.foto && <a href={e.foto} target="_blank" rel="noreferrer" className="inline-block mt-1.5"><img src={e.foto} alt="Foto de la entrevista" className="w-24 h-24 object-cover rounded-md" style={{ border: `1px solid ${C.cardBorder}` }} /></a>}
             </div>
           ))}
         </div>
         {!readOnly && (
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <input type="date" value={ent.fecha} onChange={(e) => setEnt({ ...ent, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
-            <input value={ent.con} onChange={(e) => setEnt({ ...ent, con: e.target.value })} placeholder="Con quién" className="rounded-md p-2 text-sm" style={inp} />
-            <input value={ent.resumen} onChange={(e) => setEnt({ ...ent, resumen: e.target.value })} placeholder="Resumen" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
-            <Btn onClick={() => { if (ent.resumen.trim()) { add("entrevistas", ent); setEnt({ fecha: "", con: "Apoderado/a", resumen: "" }); } }}><Plus size={14} /> Agregar</Btn>
+          <div className="flex flex-col gap-2 print:hidden">
+            <div className="flex flex-wrap gap-2">
+              <input type="date" value={ent.fecha} onChange={(e) => setEnt({ ...ent, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+              <input value={ent.con} onChange={(e) => setEnt({ ...ent, con: e.target.value })} placeholder="Con quién" className="rounded-md p-2 text-sm" style={inp} />
+              <input value={ent.resumen} onChange={(e) => setEnt({ ...ent, resumen: e.target.value })} placeholder="Resumen (o adjunta la foto)" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="mbtn-outline text-xs px-3.5 py-2 rounded-full cursor-pointer inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                <Camera size={15} /> {ent.foto ? "Cambiar foto" : "Tomar / subir foto"}
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setEnt((p) => ({ ...p, foto: r.result })); r.readAsDataURL(f); } e.target.value = ""; }} />
+              </label>
+              {ent.foto && <img src={ent.foto} alt="Vista previa" className="w-12 h-12 object-cover rounded-md" style={{ border: `1px solid ${C.cardBorder}` }} />}
+              <Btn onClick={() => { if (ent.resumen.trim() || ent.foto) { add("entrevistas", ent); setEnt({ fecha: "", con: "Apoderado/a", resumen: "", foto: null }); } }}><Plus size={14} /> Agregar</Btn>
+            </div>
           </div>
         )}
       </ExpBlock>
