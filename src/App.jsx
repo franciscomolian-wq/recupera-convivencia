@@ -278,6 +278,23 @@ const INST_TYPE_COLORS = {
 };
 const instColor = (id, institutions) => INST_TYPE_COLORS[institutions.find((i) => i.id === id)?.type] || "#5F6368";
 
+/* Color por categoría de caso (agrupa los 13 tipos en familias) */
+const CASE_CAT_COLOR = {
+  bullying: "#1A73E8", ciberacoso: "#1A73E8", discriminacion: "#1A73E8",
+  agresionGrave: "#D93025", drogas: "#D93025",
+  vulneracion: "#9334E6", situacionRiesgo: "#9334E6", junjiParvulo: "#9334E6",
+  violenciaFuncionario: "#E8710A", maltratoDocenteEstudiante: "#E8710A",
+  disciplinario: "#12A4A4", denunciaInterna: "#12A4A4", accidenteEscolar: "#5F6368",
+};
+const caseColor = (typeKey) => CASE_CAT_COLOR[typeKey] || "#5F6368";
+
+/* Color por categoría documental */
+const DOC_CAT_COLOR = {
+  "Informe": "#1A73E8", "Acta": "#1E8E3E", "Protocolo": "#9334E6", "Formulario": "#12A4A4",
+  "Oficio": "#E8710A", "Resolución": "#D93025", "Certificado": "#B5309E",
+  "Consentimiento": "#1A73E8", "Evidencia": "#5F6368", "Otro": "#5F6368",
+};
+
 function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
   const role = ROLES[session.role];
@@ -436,11 +453,14 @@ function Dashboard({ role, cases, onOpenCase, onGo }) {
       <div className="flex flex-col gap-2">
         {withDeadline.map(({ c, step, dl }) => (
           <button key={c.id} onClick={() => onOpenCase(c.id)} className="text-left">
-            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
-              <div>
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${caseColor(c.typeKey)}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+              <div className="flex items-start gap-2.5">
+                <span style={{ background: caseColor(c.typeKey) }} className="w-2 h-2 rounded-full mt-1.5 shrink-0" />
+                <div>
                 <span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span>
                 <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
                 <div style={{ color: C.textSoft }} className="text-xs mt-1">{step.title}</div>
+                </div>
               </div>
               {c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0">Cerrado</span> : <StatusPill dl={dl} />}
             </div>
@@ -462,11 +482,14 @@ function CaseList({ cases, onOpen, role }) {
           const dl = daysLeft(step.due);
           return (
             <button key={c.id} onClick={() => onOpen(c.id)} className="text-left">
-              <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
-                <div>
-                  <span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span>
-                  <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
-                  <div style={{ color: C.textSoft }} className="text-xs mt-1">{c.studentLabel}</div>
+              <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${caseColor(c.typeKey)}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                <div className="flex items-start gap-2.5">
+                  <span style={{ background: caseColor(c.typeKey) }} className="w-2 h-2 rounded-full mt-1.5 shrink-0" />
+                  <div>
+                    <span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span>
+                    <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
+                    <div style={{ color: C.textSoft }} className="text-xs mt-1">{c.studentLabel}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">{c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Cerrado</span> : <StatusPill dl={dl} />}<ChevronRight size={16} color={C.textSoft} /></div>
               </div>
@@ -1202,7 +1225,7 @@ function DocumentalPage({ documents, setDocuments, cases, role }) {
             {rows.map((x) => (
               <tr key={x.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
                 <td style={{ color: C.ink }} className="p-3">{x.nombre}</td>
-                <td className="p-3"><span style={{ background: C.paper, color: C.seal, border: `1px solid ${C.paperLine}` }} className="text-[11px] px-2 py-0.5 rounded-full">{x.categoria}</span></td>
+                <td className="p-3"><span style={{ background: (DOC_CAT_COLOR[x.categoria] || "#5F6368") + "18", color: DOC_CAT_COLOR[x.categoria] || "#5F6368", border: `1px solid ${(DOC_CAT_COLOR[x.categoria] || "#5F6368")}55` }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{x.categoria}</span></td>
                 <td style={{ ...mono, color: C.textSoft }} className="p-3 text-xs">{x.caso || "—"}</td>
                 <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.fecha || "—"}</td>
                 <td className="p-3 print:hidden">
