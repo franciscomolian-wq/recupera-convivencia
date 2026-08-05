@@ -159,6 +159,24 @@ export function billing(e) {
   return { total, paid, owed, status };
 }
 
+/* ------------------------- EXPORTAR EXCEL ------------------------- */
+/* Genera un .xls (tabla HTML que Excel abre nativamente) sin librerías. */
+export function exportExcel(rows, filename, title) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const thead = `<tr>${headers.map((h) => `<th style="background:#0E6C5A;color:#fff;text-align:left">${esc(h)}</th>`).join("")}</tr>`;
+  const tbody = rows.map((r) => `<tr>${headers.map((h) => `<td>${esc(r[h])}</td>`).join("")}</tr>`).join("");
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${title ? `<h3>${esc(title)}</h3>` : ""}<table border="1">${thead}${tbody}</table></body></html>`;
+  const blob = new Blob(["﻿" + html], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "reporte.xls";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ------------------------- EXPORTAR CSV --------------------------- */
 export function exportCSV(rows, filename) {
   if (!rows.length) return;

@@ -6,7 +6,7 @@ import {
   Printer, Download, Upload, LogOut, Sparkles, Paperclip,
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
-  MessageSquare, Calendar, Gavel, Trash2,
+  MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -14,11 +14,12 @@ import {
   DEFAULT_EMAIL_TEMPLATES, INTERVIEW_TEMPLATES, DEFAULT_ESTABLISHMENT_DOCS,
   UF_VALUE_CLP, MONTHLY_REVENUE_UF, STUDENTS, MEASURE_TYPES,
   ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
+  GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
-  fmtUF, fmtCLP, billing,
+  fmtUF, fmtCLP, billing, exportExcel,
 } from "./engine.js";
 
 /* ---------------------------------------------------------------
@@ -59,6 +60,7 @@ export default function App() {
   const [students, setStudents] = useState(STUDENTS);
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [events, setEvents] = useState(INITIAL_EVENTS);
+  const [gestiones, setGestiones] = useState(INITIAL_GESTIONES);
 
   if (!session) return <Login users={users} onLogin={setSession} />;
 
@@ -66,7 +68,7 @@ export default function App() {
     session, setSession, cases, setCases, users, setUsers,
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
-    students, setStudents, messages, setMessages, events, setEvents,
+    students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
   };
 
   const role = ROLES[session.role];
@@ -218,18 +220,21 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "casos", "expedientes", "inspectoria", "nuevo", "agenda", "comunicacion", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
-  audit: ["dashboard", "casos", "expedientes", "inspectoria", "agenda", "reportes", "auditoria", "normativa"],
-  limited: ["dashboard", "casos", "expedientes", "nuevo", "agenda", "comunicacion", "formatos", "normativa"],
+  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "reportes", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "reportes", "gestion", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
 };
 const PORTAL_NAV = {
   dashboard: { label: "Panel general", icon: LayoutGrid },
+  alertas: { label: "Alertas inteligentes", icon: AlertTriangle },
   casos: { label: "Casos de convivencia", icon: FolderOpen },
   expedientes: { label: "Expedientes de estudiantes", icon: ClipboardList },
   inspectoria: { label: "Inspectoría General", icon: Gavel },
+  pie: { label: "Integración PIE", icon: Puzzle },
   agenda: { label: "Agenda institucional", icon: Calendar },
   comunicacion: { label: "Comunicación interna", icon: MessageSquare },
+  gestion: { label: "Redes externas (gestiones)", icon: Share2 },
   nuevo: { label: "Nuevo caso", icon: Plus },
   reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
   formatos: { label: "Formatos y plantillas", icon: FileText },
@@ -267,10 +272,13 @@ function PortalApp(props) {
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={role} />}
+        {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={role} />}
         {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={role} />}
         {view === "comunicacion" && <MessagesPage messages={props.messages} setMessages={props.setMessages} session={session} role={role} />}
+        {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={role} />}
+        {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
         {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
-        {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} />}
+        {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
         {view === "formatos" && <FormatosPage />}
         {view === "normativa" && <NormativaPage docs={props.docs} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
@@ -803,6 +811,189 @@ function MessagesPage({ messages, setMessages, session, role }) {
   );
 }
 
+/* =================== MÓDULO 5 — INTEGRACIÓN PIE ================== */
+function PIEPage({ students, setStudents, cases, role }) {
+  const readOnly = role.scope === "audit";
+  const [sid, setSid] = useState(students[0]?.id);
+  const s = students.find((x) => x.id === sid);
+  const [inf, setInf] = useState({ fecha: "", profesional: "", resumen: "" });
+  const [ade, setAde] = useState({ fecha: "", descripcion: "" });
+  const [est, setEst] = useState({ descripcion: "", paec: true });
+  const [reu, setReu] = useState({ fecha: "", participantes: "", acuerdos: "" });
+
+  const totNEE = students.filter((x) => x.nee).length;
+  const totInf = students.reduce((a, x) => a + (x.pieInformes || []).length, 0);
+  const totAde = students.reduce((a, x) => a + (x.pieAdecuaciones || []).length, 0);
+  const totReu = students.reduce((a, x) => a + (x.pieReuniones || []).length, 0);
+
+  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
+  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const scases = cases.filter((c) => c.studentId === sid);
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Integración PIE" subtitle="Programa de Integración Escolar: NEE, informes, adecuaciones, estrategias (PAEC) y reuniones interdisciplinarias. Comparte datos con Convivencia para no duplicar." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "pie.json")} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <StatCard label="Estudiantes con NEE" value={totNEE} color={C.primary} />
+        <StatCard label="Informes profesionales" value={totInf} color={C.ink} />
+        <StatCard label="Adecuaciones" value={totAde} color={C.ink} />
+        <StatCard label="Reuniones interdisc." value={totReu} color={C.ink} />
+      </div>
+      <div className="mb-4 flex items-center gap-4 flex-wrap print:hidden">
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante</label>
+          <select value={sid} onChange={(e) => setSid(e.target.value)} className="mt-1.5 rounded-md p-2.5 text-sm" style={inp}>
+            {students.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.curso}{x.nee ? " · NEE" : ""}</option>)}
+          </select>
+        </div>
+        {s && !readOnly && <label className="flex items-center gap-2 text-sm mt-5" style={{ color: C.ink }}><input type="checkbox" checked={!!s.nee} onChange={() => update((x) => ({ ...x, nee: !x.nee }))} /> Tiene NEE</label>}
+      </div>
+      {s && (
+        <>
+          {s.nee && s.neeTipo && <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-md p-2.5 text-xs mb-4">NEE: {s.neeTipo}</div>}
+          <ExpBlock icon={FolderOpen} title={`Casos de convivencia (espejo — ${scases.length})`}>
+            {scases.length === 0 ? <div style={{ color: C.textSoft }} className="text-sm">Sin casos.</div> : (
+              <div className="flex flex-col gap-1.5">{scases.map((c) => <div key={c.id} style={{ color: C.textSoft }} className="text-xs"><b style={{ color: C.ink }}>{c.id}</b> · {c.type.label}{c.closed ? " (cerrado)" : ""}</div>)}</div>
+            )}
+            <div style={{ color: C.textSoft }} className="text-[11px] mt-2">Datos tomados de Convivencia — no se re-ingresan aquí (evita duplicación).</div>
+          </ExpBlock>
+          <ExpBlock icon={FileText} title={`Informes profesionales (${(s.pieInformes || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">{(s.pieInformes || []).map((x) => <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }} className="font-medium">{x.profesional} · {x.fecha}</span><div style={{ color: C.textSoft }}>{x.resumen}</div></div>)}</div>
+            {!readOnly && <div className="flex flex-wrap gap-2 print:hidden"><input type="date" value={inf.fecha} onChange={(e) => setInf({ ...inf, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /><input value={inf.profesional} onChange={(e) => setInf({ ...inf, profesional: e.target.value })} placeholder="Profesional" className="rounded-md p-2 text-sm" style={inp} /><input value={inf.resumen} onChange={(e) => setInf({ ...inf, resumen: e.target.value })} placeholder="Resumen" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} /><Btn onClick={() => { if (inf.resumen.trim()) { add("pieInformes", inf); setInf({ fecha: "", profesional: "", resumen: "" }); } }}><Plus size={14} /> Agregar</Btn></div>}
+          </ExpBlock>
+          <ExpBlock icon={CheckCircle2} title={`Adecuaciones (${(s.pieAdecuaciones || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">{(s.pieAdecuaciones || []).map((x) => <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }}>{x.descripcion}</span> <span style={{ color: C.textSoft }}>· {x.fecha}</span></div>)}</div>
+            {!readOnly && <div className="flex flex-wrap gap-2 print:hidden"><input type="date" value={ade.fecha} onChange={(e) => setAde({ ...ade, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /><input value={ade.descripcion} onChange={(e) => setAde({ ...ade, descripcion: e.target.value })} placeholder="Adecuación implementada" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} /><Btn onClick={() => { if (ade.descripcion.trim()) { add("pieAdecuaciones", ade); setAde({ fecha: "", descripcion: "" }); } }}><Plus size={14} /> Agregar</Btn></div>}
+          </ExpBlock>
+          <ExpBlock icon={Sparkles} title={`Estrategias de apoyo — PAEC (${(s.pieEstrategias || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">{(s.pieEstrategias || []).map((x) => <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2"><span style={{ color: C.ink }}>{x.descripcion}</span>{x.paec && <span style={{ background: C.primary + "22", color: C.primary }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">PAEC</span>}</div>)}</div>
+            {!readOnly && <div className="flex flex-wrap gap-2 items-center print:hidden"><input value={est.descripcion} onChange={(e) => setEst({ ...est, descripcion: e.target.value })} placeholder="Estrategia de apoyo" className="rounded-md p-2 text-sm flex-1 min-w-[180px]" style={inp} /><label className="flex items-center gap-1.5 text-xs" style={{ color: C.textSoft }}><input type="checkbox" checked={est.paec} onChange={(e) => setEst({ ...est, paec: e.target.checked })} /> Vincular a PAEC</label><Btn onClick={() => { if (est.descripcion.trim()) { add("pieEstrategias", est); setEst({ descripcion: "", paec: true }); } }}><Plus size={14} /> Agregar</Btn></div>}
+          </ExpBlock>
+          <ExpBlock icon={Users} title={`Reuniones interdisciplinarias y acuerdos (${(s.pieReuniones || []).length})`}>
+            <div className="flex flex-col gap-2 mb-3">{(s.pieReuniones || []).map((x) => <div key={x.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs"><span style={{ color: C.ink }} className="font-medium">{x.fecha} · {x.participantes}</span><div style={{ color: C.textSoft }}>Acuerdos: {x.acuerdos}</div></div>)}</div>
+            {!readOnly && <div className="flex flex-wrap gap-2 print:hidden"><input type="date" value={reu.fecha} onChange={(e) => setReu({ ...reu, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /><input value={reu.participantes} onChange={(e) => setReu({ ...reu, participantes: e.target.value })} placeholder="Participantes" className="rounded-md p-2 text-sm" style={inp} /><input value={reu.acuerdos} onChange={(e) => setReu({ ...reu, acuerdos: e.target.value })} placeholder="Acuerdos" className="rounded-md p-2 text-sm flex-1 min-w-[140px]" style={inp} /><Btn onClick={() => { if (reu.participantes.trim()) { add("pieReuniones", reu); setReu({ fecha: "", participantes: "", acuerdos: "" }); } }}><Plus size={14} /> Agregar</Btn></div>}
+          </ExpBlock>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =================== MÓDULO 8 — REDES EXTERNAS (GESTIONES) ======== */
+function GestionRedesPage({ gestiones, setGestiones, institutions, cases, role }) {
+  const readOnly = role.scope === "audit";
+  const [g, setG] = useState({ tipo: "Oficio enviado", institucion: institutions[0]?.label || "", caso: "", fecha: "", detalle: "", estado: "Pendiente" });
+  const [festado, setFestado] = useState("");
+  const rows = gestiones.filter((x) => !festado || x.estado === festado);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const estadoColor = { Pendiente: C.warn, "En curso": C.admin, Respondido: C.ok, Cumplido: C.ok };
+  const nOficios = gestiones.filter((x) => x.tipo === "Oficio enviado").length;
+  const nDeriv = gestiones.filter((x) => x.tipo === "Derivación").length;
+  const nPend = gestiones.filter((x) => x.estado === "Pendiente").length;
+  const nJud = gestiones.filter((x) => x.tipo === "Medida judicial").length;
+
+  function add() { if (g.detalle.trim()) { setGestiones([{ id: "g" + Date.now(), ...g }, ...gestiones]); setG({ tipo: "Oficio enviado", institucion: institutions[0]?.label || "", caso: "", fecha: "", detalle: "", estado: "Pendiente" }); } }
+
+  return (
+    <div className="max-w-4xl">
+      <PageHead title="Redes externas — gestiones" subtitle="Registro de oficios, derivaciones, informes, respuestas, audiencias, medidas judiciales y cumplimiento de resoluciones con organismos externos." right={<Toolbar onPrint={printView} onExport={() => exportJSON(gestiones, "gestiones.json")} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <StatCard label="Oficios enviados" value={nOficios} color={C.ink} />
+        <StatCard label="Derivaciones" value={nDeriv} color={C.ink} />
+        <StatCard label="Pendientes" value={nPend} color={C.warn} />
+        <StatCard label="Medidas judiciales" value={nJud} color={C.urgent} />
+      </div>
+      {!readOnly && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-5 print:hidden">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Registrar gestión</div>
+          <div className="flex flex-wrap gap-2">
+            <select value={g.tipo} onChange={(e) => setG({ ...g, tipo: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{GESTION_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+            <select value={g.institucion} onChange={(e) => setG({ ...g, institucion: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{institutions.map((i) => <option key={i.id}>{i.label}</option>)}</select>
+            <select value={g.caso} onChange={(e) => setG({ ...g, caso: e.target.value })} className="rounded-md p-2 text-sm" style={inp}><option value="">Sin caso vinculado</option>{cases.map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}</select>
+            <input type="date" value={g.fecha} onChange={(e) => setG({ ...g, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <select value={g.estado} onChange={(e) => setG({ ...g, estado: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>{GESTION_ESTADOS.map((t) => <option key={t}>{t}</option>)}</select>
+            <input value={g.detalle} onChange={(e) => setG({ ...g, detalle: e.target.value })} placeholder="Detalle de la gestión" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+            <Btn onClick={add}><Plus size={14} /> Registrar</Btn>
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2 mb-3 print:hidden">
+        <select value={festado} onChange={(e) => setFestado(e.target.value)} className="rounded-md p-2 text-sm" style={inp}><option value="">Todos los estados</option>{GESTION_ESTADOS.map((t) => <option key={t}>{t}</option>)}</select>
+      </div>
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.paper, color: C.textSoft }} className="text-xs uppercase"><th className="text-left p-3">Tipo</th><th className="text-left p-3">Institución</th><th className="text-left p-3">Caso</th><th className="text-left p-3">Fecha</th><th className="text-left p-3">Detalle</th><th className="text-left p-3">Estado</th></tr></thead>
+          <tbody>
+            {rows.map((x) => (
+              <tr key={x.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+                <td style={{ color: C.ink }} className="p-3">{x.tipo}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.institucion}</td>
+                <td style={{ ...mono, color: C.textSoft }} className="p-3 text-xs">{x.caso || "—"}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.fecha || "—"}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.detalle}</td>
+                <td className="p-3"><span style={{ background: (estadoColor[x.estado] || C.textSoft) + "22", color: estadoColor[x.estado] || C.textSoft }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{x.estado}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* =================== MÓDULO 12 — ALERTAS INTELIGENTES ============ */
+function AlertsPage({ cases, students, gestiones, onOpenCase, onOpenStudent, onGo }) {
+  const alerts = [];
+  cases.filter((c) => !c.closed).forEach((c) => {
+    const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+    const dl = daysLeft(step.due);
+    if (dl < 0) alerts.push({ sev: "alta", tipo: "Plazo vencido", msg: `${c.id} — ${c.type.label}: vencido hace ${-dl} días (${step.title})`, action: () => onOpenCase(c.id) });
+    const last = c.log && c.log[c.log.length - 1]?.at;
+    if (last) { const d = Math.floor((Date.now() - new Date(last).getTime()) / 86400000); if (d > 14) alerts.push({ sev: "media", tipo: "Sin seguimiento", msg: `${c.id}: sin acciones registradas hace ${d} días`, action: () => onOpenCase(c.id) }); }
+  });
+  students.forEach((s) => {
+    const n = cases.filter((c) => c.studentId === s.id).length;
+    if (n > 1) alerts.push({ sev: "media", tipo: "Estudiante reincidente", msg: `${s.name} (${s.curso}): ${n} casos registrados`, action: () => onOpenStudent(s.id) });
+    const neg = (s.anotaciones || []).filter((a) => a.tipo === "negativa").length;
+    if (neg >= 2) alerts.push({ sev: "media", tipo: "Registros negativos acumulados", msg: `${s.name}: ${neg} anotaciones negativas en hoja de vida`, action: () => onOpenStudent(s.id) });
+    const at = (s.atrasos || []).reduce((b, t) => b + (Number(t.cantidad) || 1), 0);
+    if (at >= 3) alerts.push({ sev: "media", tipo: "Asistencia crítica", msg: `${s.name}: ${at} atrasos acumulados`, action: () => onOpenStudent(s.id) });
+    const na = (s.citaciones || []).filter((c) => c.estado === "No asiste").length;
+    if (na >= 1) alerts.push({ sev: "media", tipo: "Apoderado ausente del proceso", msg: `${s.name}: ${na} citación(es) sin asistencia del apoderado`, action: () => onOpenStudent(s.id) });
+  });
+  (gestiones || []).filter((x) => x.tipo === "Medida judicial" && x.estado !== "Cumplido").forEach((x) => {
+    alerts.push({ sev: "alta", tipo: "Medida judicial pendiente", msg: `${x.institucion}: ${x.detalle} (${x.estado})`, action: () => onGo("gestion") });
+  });
+  const altas = alerts.filter((a) => a.sev === "alta");
+  const medias = alerts.filter((a) => a.sev === "media");
+
+  const card = (a, i) => (
+    <button key={i} onClick={a.action} className="text-left w-full">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${a.sev === "alta" ? C.urgent : C.warn}` }} className="rounded-lg p-3.5 flex items-start gap-3 hover:shadow-sm transition">
+        <AlertTriangle size={16} style={{ color: a.sev === "alta" ? C.urgent : C.warn }} className="mt-0.5 shrink-0" />
+        <div><div style={{ color: C.ink }} className="text-sm font-medium">{a.tipo}</div><div style={{ color: C.textSoft }} className="text-xs mt-0.5">{a.msg}</div></div>
+      </div>
+    </button>
+  );
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Alertas inteligentes" subtitle="Situaciones que requieren atención, detectadas automáticamente a partir de los datos." right={<Toolbar onPrint={printView} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        <StatCard label="Alertas totales" value={alerts.length} color={C.ink} />
+        <StatCard label="Prioridad alta" value={altas.length} color={C.urgent} />
+        <StatCard label="Prioridad media" value={medias.length} color={C.warn} />
+      </div>
+      {alerts.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">Sin alertas por ahora. 🎉</div>}
+      {altas.length > 0 && <div style={{ color: C.urgent }} className="text-xs font-medium uppercase tracking-wide mb-2">Prioridad alta</div>}
+      <div className="flex flex-col gap-2 mb-6">{altas.map(card)}</div>
+      {medias.length > 0 && <div style={{ color: C.warn }} className="text-xs font-medium uppercase tracking-wide mb-2">Prioridad media</div>}
+      <div className="flex flex-col gap-2">{medias.map(card)}</div>
+    </div>
+  );
+}
+
 /* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
 function CaseWizard({ students, setStudents, onCreate, onCancel }) {
   const [mode, setMode] = useState("predef");
@@ -1125,19 +1316,43 @@ function DerivationModal({ c, institutions, onClose, onDerive }) {
 }
 
 /* ------------------------- REPORTES ------------------------------- */
-function ReportsPage({ cases, setCases }) {
+function ReportsPage({ cases, setCases, students = [] }) {
   const [ftype, setFtype] = useState("");
   const [flevel, setFlevel] = useState("");
   const [festado, setFestado] = useState("");
   const enriched = cases.map((c) => {
     const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
     const dl = daysLeft(step.due);
-    const estado = dl < 0 ? "vencido" : dl <= 3 ? "por vencer" : "al día";
+    const estado = c.closed ? "cerrado" : dl < 0 ? "vencido" : dl <= 3 ? "por vencer" : "al día";
     return { c, step, dl, estado };
   });
   const rows = enriched.filter((r) => (!ftype || r.c.typeKey === ftype) && (!flevel || r.c.level === flevel) && (!festado || r.estado === festado));
   const byType = Object.entries(CASE_TYPES).map(([k, v]) => ({ label: v.label, n: rows.filter((r) => r.c.typeKey === k).length })).filter((x) => x.n > 0);
   const maxT = Math.max(...byType.map((x) => x.n), 1);
+
+  // Indicadores avanzados (Módulo 11)
+  const abiertos = cases.filter((c) => !c.closed).length;
+  const cerrados = cases.filter((c) => c.closed).length;
+  const cursoCount = {};
+  cases.forEach((c) => { const k = c.curso || "—"; cursoCount[k] = (cursoCount[k] || 0) + 1; });
+  const cursoTop = Object.entries(cursoCount).sort((a, b) => b[1] - a[1])[0];
+  const reincidentes = students.filter((s) => cases.filter((c) => c.studentId === s.id).length > 1).length;
+  const closedWithDates = cases.filter((c) => c.closed && c.closedAt && c.start);
+  const tiempoProm = closedWithDates.length ? Math.round(closedWithDates.reduce((a, c) => a + (new Date(c.closedAt) - new Date(c.start)) / 86400000, 0) / closedWithDates.length) : null;
+  const totCit = students.reduce((a, s) => a + (s.citaciones || []).length, 0);
+  const citAsiste = students.reduce((a, s) => a + (s.citaciones || []).filter((c) => c.estado === "Asiste").length, 0);
+  const asistPct = totCit ? Math.round((citAsiste / totCit) * 100) : null;
+  const totMedidas = students.reduce((a, s) => a + (s.medidas || []).length, 0);
+  const indicadores = [
+    { label: "Casos abiertos", value: abiertos },
+    { label: "Casos cerrados", value: cerrados },
+    { label: "Curso con mayor incidencia", value: cursoTop ? `${cursoTop[0]} (${cursoTop[1]})` : "—" },
+    { label: "Estudiantes reincidentes", value: reincidentes },
+    { label: "Tiempo prom. de resolución", value: tiempoProm != null ? `${tiempoProm} días` : "—" },
+    { label: "Asistencia a entrevistas", value: asistPct != null ? `${asistPct}%` : "—" },
+    { label: "Medidas aplicadas", value: totMedidas },
+    { label: "Casos totales", value: cases.length },
+  ];
 
   return (
     <div>
@@ -1157,11 +1372,19 @@ function ReportsPage({ cases, setCases }) {
           <option value="al día">Al día</option><option value="por vencer">Por vencer</option><option value="vencido">Vencido</option>
         </select>
         <Btn variant="ghost" onClick={() => exportCSV(rows.map((r) => ({ ID: r.c.id, Tipo: r.c.type.label, Nivel: LEVELS[r.c.level] || "", Etapa: r.step.title, Estado: r.estado, DiasRestantes: r.dl })), "reporte-casos.csv")}><Download size={15} /> Exportar CSV</Btn>
+        <Btn variant="ghost" onClick={() => exportExcel(rows.map((r) => ({ ID: r.c.id, Tipo: r.c.type.label, Nivel: LEVELS[r.c.level] || "", Curso: r.c.curso || "", Etapa: r.step.title, Estado: r.estado })), "reporte-casos.xls", "Reporte de casos — Recupera Convivencia")}><Download size={15} /> Exportar Excel</Btn>
+        <Btn variant="ghost" onClick={printView}><Printer size={15} /> Exportar PDF</Btn>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-6">
         <StatCard label="Casos (filtrados)" value={rows.length} color={C.ink} />
         <StatCard label="Vencidos" value={rows.filter((r) => r.estado === "vencido").length} color={C.urgent} />
         <StatCard label="Al día" value={rows.filter((r) => r.estado === "al día").length} color={C.ok} />
+      </div>
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-6">
+        <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Indicadores</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {indicadores.map((k) => <div key={k.label}><div style={{ color: C.ink }} className="text-lg font-semibold">{k.value}</div><div style={{ color: C.textSoft }} className="text-[11px] leading-snug">{k.label}</div></div>)}
+        </div>
       </div>
       {byType.length > 0 && (
         <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-6">

@@ -54,6 +54,21 @@ export const INSTITUTIONS = [
   { id: "cesfam", label: "CESFAM / Hospital", type: "salud", email: "" },
   { id: "oln", label: "Oficina Local de la Niñez (OLN)", type: "protección", email: "" },
   { id: "defensoria", label: "Defensoría de la Niñez", type: "protección", email: "" },
+  { id: "mejorNinez", label: "Servicio Mejor Niñez", type: "protección", email: "" },
+  { id: "pjud", label: "Poder Judicial", type: "judicial", email: "" },
+  { id: "slep", label: "Servicio Local de Educación Pública (SLEP)", type: "fiscalización", email: "" },
+  { id: "municipio", label: "Municipalidad", type: "comunitaria", email: "" },
+  { id: "comunitaria", label: "Organización comunitaria", type: "comunitaria", email: "" },
+];
+
+/* Gestión de redes externas (Módulo 8) — tipos, estados y semillas */
+export const GESTION_TYPES = ["Oficio enviado", "Derivación", "Informe", "Respuesta recibida", "Audiencia", "Medida judicial", "Cumplimiento de resolución"];
+export const GESTION_ESTADOS = ["Pendiente", "En curso", "Respondido", "Cumplido"];
+
+export const INITIAL_GESTIONES = [
+  { id: "g1", tipo: "Derivación", institucion: "OPD / Mejor Niñez", caso: "RC-2026-009", fecha: "2026-07-15", detalle: "Derivación por vulneración de derechos.", estado: "En curso" },
+  { id: "g2", tipo: "Oficio enviado", institucion: "Tribunal de Familia", caso: "RC-2026-009", fecha: "2026-07-20", detalle: "Oficio informando medidas adoptadas.", estado: "Pendiente" },
+  { id: "g3", tipo: "Medida judicial", institucion: "Tribunal de Familia", caso: "RC-2026-021", fecha: "2026-07-25", detalle: "Medida cautelar de protección dictada.", estado: "En curso" },
 ];
 
 /* ---------------------------------------------------------------
@@ -310,9 +325,14 @@ export const STUDENTS = [
     suspensiones: [],
     atrasos: [{ id: "at1", fecha: "2026-07-02", cantidad: 1 }],
     retiros: [],
+    nee: true, neeTipo: "NEE transitoria (dificultades específicas de aprendizaje)",
+    pieInformes: [{ id: "pi1", fecha: "2026-06-20", profesional: "Psicopedagoga", resumen: "Evaluación diagnóstica; se sugiere adecuación de tiempos." }],
+    pieAdecuaciones: [{ id: "pa1", fecha: "2026-06-25", descripcion: "Tiempo adicional en evaluaciones." }],
+    pieEstrategias: [{ id: "pe1", descripcion: "Refuerzo lector individual", paec: true }],
+    pieReuniones: [{ id: "pr1", fecha: "2026-07-01", participantes: "PIE, Prof. Jefe, Convivencia", acuerdos: "Monitoreo mensual de avances." }],
   },
-  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [] },
-  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [] },
+  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [] },
+  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [], anotaciones: [], suspensiones: [], atrasos: [], retiros: [], nee: false, neeTipo: "", pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [] },
 ];
 
 export const MEASURE_TYPES = [
