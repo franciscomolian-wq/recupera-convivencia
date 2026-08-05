@@ -1,0 +1,1300 @@
+import React, { useState, useRef } from "react";
+import {
+  Shield, Users, AlertTriangle, CheckCircle2, Clock,
+  ChevronRight, Building2, UserCircle, Scale, Plus, X, Mail,
+  LayoutGrid, Network, ClipboardCheck, Settings, FolderOpen, Bell,
+  Printer, Download, Upload, LogOut, Sparkles, Paperclip,
+  Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
+  Wallet, Coins, TrendingUp, CheckCircle,
+} from "lucide-react";
+import {
+  NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
+  ESTABLISHMENTS, USERS, INITIAL_NOTIFICATIONS, EVIDENCE_TYPES,
+  DEFAULT_EMAIL_TEMPLATES, INTERVIEW_TEMPLATES, DEFAULT_ESTABLISHMENT_DOCS,
+  UF_VALUE_CLP, MONTHLY_REVENUE_UF,
+} from "./data.js";
+import {
+  fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
+  exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
+  fmtUF, fmtCLP, billing,
+} from "./engine.js";
+
+/* ---------------------------------------------------------------
+   DESIGN TOKENS — se mantiene la línea actual (re-vestible con Stitch)
+   ---------------------------------------------------------------- */
+/* Paleta Google / Material: azul #1A73E8, rojo #D93025, amarillo, verde #1E8E3E */
+const C = {
+  sidebarBg: "#F8FAFD", sidebarBorder: "#E4E8EE", sidebarActive: "#E8F0FE",
+  sidebarActiveBorder: "#D2E3FC", sidebarText: "#3C4043", sidebarTextSoft: "#5F6368",
+  appBg: "#F1F3F4", cardBg: "#FFFFFF", cardBorder: "#DADCE0",
+  paper: "#F1F3F4", paperLine: "#DADCE0", seal: "#1A73E8",
+  urgent: "#D93025", warn: "#EA8600", ok: "#1E8E3E",
+  ink: "#202124", text: "#3C4043", textSoft: "#5F6368",
+  admin: "#1A73E8", adminSoft: "#E8F0FE", primary: "#1A73E8",
+};
+const serif = { fontFamily: "'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif", fontWeight: 500 };
+const mono = { fontFamily: "'Roboto Mono', ui-monospace, monospace" };
+
+/* --------------------------- SEED --------------------------------- */
+const initialCases = [
+  buildCase("RC-2026-014", "bullying", "Estudiante 7°B (iniciales J.M.)", 40, 4, "apoderado.jm@correo.cl"),
+  buildCase("RC-2026-021", "agresionGrave", "Estudiante 2°M (iniciales F.T.)", 12, 2, "apoderado.ft@correo.cl"),
+  buildCase("RC-2026-009", "discriminacion", "Estudiante 4°B (iniciales C.R.)", 58, 5, "apoderado.cr@correo.cl"),
+];
+
+/* =================================================================
+   RAÍZ — login + enrutado por rol
+   ================================================================= */
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [cases, setCases] = useState(initialCases);
+  const [users, setUsers] = useState(USERS);
+  const [institutions, setInstitutions] = useState(INSTITUTIONS);
+  const [establishments, setEstablishments] = useState(ESTABLISHMENTS);
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
+  const [docs, setDocs] = useState(DEFAULT_ESTABLISHMENT_DOCS);
+
+  if (!session) return <Login users={users} onLogin={setSession} />;
+
+  const shared = {
+    session, setSession, cases, setCases, users, setUsers,
+    institutions, setInstitutions, establishments, setEstablishments,
+    notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
+  };
+
+  const role = ROLES[session.role];
+  if (role.scope === "superadmin") return <AdminApp {...shared} />;
+  return <PortalApp {...shared} />;
+}
+
+/* ---------------------------------------------------------------
+   LOGIN
+   ---------------------------------------------------------------- */
+function Login({ users, onLogin }) {
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center">
+            <Scale size={19} color="#fff" />
+          </div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Recupera Convivencia</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Ingreso a la plataforma</div>
+          </div>
+        </div>
+        <p style={{ color: C.textSoft }} className="text-sm mb-4">Selecciona un perfil para ingresar (demo):</p>
+        <div className="flex flex-col gap-2">
+          {users.map((u) => {
+            const r = ROLES[u.role];
+            return (
+              <button key={u.id} onClick={() => onLogin(u)} style={{ border: `1px solid ${C.cardBorder}`, background: C.cardBg }}
+                className="mbtn-outline flex items-center gap-3 p-3 rounded-xl text-left">
+                <div style={{ background: r.scope === "superadmin" ? C.admin : C.ink }} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0">
+                  {r.scope === "superadmin" ? <Building size={15} color="#fff" /> : <UserCircle size={15} color="#fff" />}
+                </div>
+                <div className="min-w-0">
+                  <div style={{ color: C.ink }} className="text-sm font-medium">{u.name}</div>
+                  <div style={{ color: C.textSoft }} className="text-xs">{r.label}</div>
+                </div>
+                <ChevronRight size={16} color={C.textSoft} className="ml-auto shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- COMPONENTES BASE -------------------------- */
+function Btn({ children, onClick, variant = "solid", accent = C.primary, disabled, style }) {
+  const base = "inline-flex items-center gap-2 text-sm px-4 py-2 rounded-full font-medium";
+  if (variant === "ghost")
+    return <button onClick={onClick} disabled={disabled} className={`${base} mbtn-outline`} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary, ...style }}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} className={`${base} mbtn`} style={{ background: accent, color: "#fff", opacity: disabled ? 0.4 : 1, ...style }}>{children}</button>;
+}
+
+function Toolbar({ onPrint, onExport, onImport }) {
+  const fileRef = useRef();
+  return (
+    <div className="flex items-center gap-2 flex-wrap print:hidden">
+      {onPrint && <Btn variant="ghost" onClick={onPrint}><Printer size={15} /> Imprimir</Btn>}
+      {onExport && <Btn variant="ghost" onClick={onExport}><Download size={15} /> Exportar</Btn>}
+      {onImport && (
+        <>
+          <Btn variant="ghost" onClick={() => fileRef.current?.click()}><Upload size={15} /> Importar</Btn>
+          <input ref={fileRef} type="file" accept="application/json" className="hidden"
+            onChange={async (e) => { const f = e.target.files?.[0]; if (f) { try { onImport(await importJSON(f)); } catch { alert("Archivo no válido"); } } e.target.value = ""; }} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4">
+      <div style={{ color }} className="text-2xl font-semibold">{value}</div>
+      <div style={{ color: C.textSoft }} className="text-xs mt-1 leading-snug">{label}</div>
+    </div>
+  );
+}
+
+function StatusPill({ dl }) {
+  const color = urgencyColor(dl, C);
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0">
+      <span style={{ background: color }} className="w-2 h-2 rounded-full" />
+      <span style={{ color }} className="text-xs font-medium whitespace-nowrap">{dl < 0 ? `${-dl} días de atraso` : `${dl} días`}</span>
+    </span>
+  );
+}
+
+function PageHead({ title, subtitle, right }) {
+  return (
+    <div className="flex items-end justify-between gap-4 flex-wrap mb-6">
+      <div>
+        <div style={{ ...serif, color: C.ink }} className="text-2xl mb-1">{title}</div>
+        {subtitle && <p style={{ color: C.textSoft }} className="text-sm max-w-2xl">{subtitle}</p>}
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 print:hidden">
+      <div style={{ background: C.cardBg }} className="rounded-xl max-w-lg w-full p-6 relative shadow-2xl">
+        <button onClick={onClose} className="absolute top-4 right-4" style={{ color: C.textSoft }}><X size={18} /></button>
+        <div style={{ color: C.ink }} className="text-sm font-medium mb-4">{title}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- CAMPANA DE NOTIFICACIONES ----------------- */
+function NotificationBell({ notifications, setNotifications }) {
+  const [open, setOpen] = useState(false);
+  const unread = notifications.filter((n) => !n.read).length;
+  return (
+    <div className="relative print:hidden">
+      <button onClick={() => setOpen(!open)} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="w-9 h-9 rounded-lg flex items-center justify-center relative">
+        <Bell size={17} color={C.ink} />
+        {unread > 0 && <span style={{ background: C.urgent }} className="absolute -top-1 -right-1 text-[10px] text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{unread}</span>}
+      </button>
+      {open && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="absolute right-0 mt-2 w-80 rounded-xl shadow-xl z-40 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+            <span style={{ color: C.ink }} className="text-sm font-medium">Notificaciones</span>
+            <button onClick={() => setNotifications((p) => p.map((n) => ({ ...n, read: true })))} style={{ color: C.seal }} className="text-xs">Marcar leídas</button>
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {notifications.length === 0 && <div style={{ color: C.textSoft }} className="p-4 text-sm">Sin notificaciones.</div>}
+            {notifications.map((n) => (
+              <div key={n.id} className="px-4 py-3" style={{ borderBottom: `1px solid ${C.cardBorder}`, background: n.read ? "transparent" : C.paper }}>
+                <div style={{ color: C.textSoft }} className="text-[10px] uppercase tracking-wide">{n.from} · {n.at}</div>
+                <div style={{ color: C.ink }} className="text-sm font-medium mt-0.5">{n.title}</div>
+                <div style={{ color: C.textSoft }} className="text-xs mt-0.5">{n.body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =================================================================
+   PORTAL USUARIO
+   ================================================================= */
+const PORTAL_NAV_BY_SCOPE = {
+  admin: ["dashboard", "casos", "nuevo", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "casos", "reportes", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "nuevo", "formatos", "normativa"],
+  family: ["dashboard", "micaso", "normativa"],
+};
+const PORTAL_NAV = {
+  dashboard: { label: "Panel general", icon: LayoutGrid },
+  casos: { label: "Casos de convivencia", icon: FolderOpen },
+  nuevo: { label: "Nuevo caso", icon: Plus },
+  reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
+  formatos: { label: "Formatos y plantillas", icon: FileText },
+  normativa: { label: "Motor normativo", icon: Shield },
+  redes: { label: "Redes de derivación", icon: Network },
+  auditoria: { label: "Panel de auditoría", icon: ClipboardCheck },
+  perfiles: { label: "Perfiles de la comunidad", icon: Users },
+  configuracion: { label: "Configuración", icon: Settings },
+  micaso: { label: "Mi caso", icon: FolderOpen },
+};
+
+function PortalApp(props) {
+  const { session, setSession, cases, setCases, notifications, setNotifications } = props;
+  const role = ROLES[session.role];
+  const navKeys = PORTAL_NAV_BY_SCOPE[role.scope];
+  const [view, setView] = useState("dashboard");
+  const [selectedCaseId, setSelectedCaseId] = useState(cases[0]?.id);
+  const selectedCase = cases.find((c) => c.id === selectedCaseId);
+  const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
+  function openCase(id) { setSelectedCaseId(id); setView("caso"); }
+
+  return (
+    <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
+      <Sidebar navKeys={navKeys} navMap={PORTAL_NAV} view={view} setView={setView}
+        openCase={openCase} session={session} role={role} onLogout={() => setSession(null)} accent={C.primary} />
+      <main className="flex-1 p-6 sm:p-10 min-w-0">
+        <div className="flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
+        {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
+        {view === "nuevo" && <CaseWizard onCreate={(c) => { setCases([c, ...cases]); setSelectedCaseId(c.id); setView("caso"); }} onCancel={() => setView("dashboard")} />}
+        {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
+        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
+        {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} />}
+        {view === "formatos" && <FormatosPage />}
+        {view === "normativa" && <NormativaPage docs={props.docs} />}
+        {view === "redes" && <RedesPage institutions={props.institutions} />}
+        {view === "auditoria" && <AuditPanel cases={cases} />}
+        {view === "perfiles" && <PerfilesPage users={props.users} cases={cases} />}
+        {view === "configuracion" && <ConfigPage {...props} />}
+      </main>
+    </div>
+  );
+}
+
+function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout, accent }) {
+  return (
+    <aside style={{ background: C.sidebarBg, borderRight: `1px solid ${C.sidebarBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
+      <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
+        <div style={{ background: accent }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Scale size={17} color={C.sidebarBg} /></div>
+        <div>
+          <div style={{ ...serif, color: C.sidebarText }} className="text-base leading-tight">Recupera Convivencia</div>
+          <div style={{ ...mono, color: C.sidebarTextSoft }} className="text-[10px] tracking-widest uppercase">Convivencia educativa</div>
+        </div>
+      </div>
+      <nav className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
+        {navKeys.map((key) => {
+          const item = navMap[key]; const Icon = item.icon;
+          const active = view === key || (key === "casos" && view === "caso") || (key === "micaso" && view === "caso");
+          return (
+            <button key={key} onClick={() => { if (key === "micaso") openCase("RC-2026-014"); else setView(key); }}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition text-left"
+              style={{ background: active ? C.sidebarActive : "transparent", border: `1px solid ${active ? C.sidebarActiveBorder : "transparent"}`, color: active ? C.primary : C.sidebarText, fontWeight: active ? 600 : 500 }}>
+              <Icon size={16} /> {item.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${C.sidebarBorder}` }}>
+        <div className="px-2 pt-3 pb-2">
+          <div style={{ color: C.sidebarTextSoft }} className="text-[11px] uppercase tracking-widest">Sesión</div>
+          <div style={{ color: C.sidebarText }} className="text-sm font-medium">{session.name}</div>
+          <div style={{ color: C.sidebarTextSoft }} className="text-xs">{role.label}</div>
+        </div>
+        <button onClick={onLogout} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/50 transition" style={{ color: C.sidebarText }}><LogOut size={16} /> Cerrar sesión</button>
+      </div>
+    </aside>
+  );
+}
+
+/* ------------------------- DASHBOARD ------------------------------ */
+function Dashboard({ role, cases, onOpenCase, onGo }) {
+  const isFamily = role.scope === "family";
+  const withDeadline = cases.map((c) => {
+    const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+    return { c, step, dl: daysLeft(step.due) };
+  });
+  const overdue = withDeadline.filter((x) => x.dl < 0).length;
+  const soon = withDeadline.filter((x) => x.dl >= 0 && x.dl <= 3).length;
+
+  if (isFamily) {
+    const item = withDeadline[0];
+    return (
+      <div className="max-w-3xl">
+        <PageHead title="Hola, apoderado/a" subtitle="Este es el estado actual del caso de su pupilo/a." />
+        {item && (
+          <button onClick={() => onOpenCase(item.c.id)} className="text-left w-full">
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 hover:shadow-sm transition">
+              <div style={{ ...mono, color: C.textSoft }} className="text-xs">{item.c.id}</div>
+              <div style={{ color: C.ink }} className="text-lg font-medium mt-1">{item.c.type.label}</div>
+              <div style={{ color: C.textSoft }} className="text-sm mt-2">Etapa actual: {item.step.title}</div>
+              <div className="mt-3"><StatusPill dl={item.dl} /></div>
+            </div>
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <PageHead title="Panel general" subtitle="Resumen del estado de convivencia del establecimiento." right={<Toolbar onPrint={printView} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+        <StatCard label="Casos activos" value={cases.length} color={C.ink} />
+        <StatCard label="Plazos por vencer (≤3 días)" value={soon} color={C.warn} />
+        <StatCard label="Plazos vencidos" value={overdue} color={C.urgent} />
+        <StatCard label="Casos al día" value={cases.length - overdue - soon} color={C.ok} />
+      </div>
+      <div className="flex items-center justify-between mb-3">
+        <div style={{ color: C.ink }} className="text-sm font-medium uppercase tracking-wide">Casos recientes</div>
+        {role.scope === "admin" && <button onClick={() => onGo("nuevo")} style={{ color: C.seal }} className="text-xs flex items-center gap-1 font-medium"><Plus size={13} /> Nuevo caso</button>}
+      </div>
+      <div className="flex flex-col gap-2">
+        {withDeadline.map(({ c, step, dl }) => (
+          <button key={c.id} onClick={() => onOpenCase(c.id)} className="text-left">
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+              <div>
+                <span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span>
+                <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
+                <div style={{ color: C.textSoft }} className="text-xs mt-1">{step.title}</div>
+              </div>
+              <StatusPill dl={dl} />
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- CASE LIST ------------------------------ */
+function CaseList({ cases, onOpen, role }) {
+  return (
+    <div>
+      <PageHead title="Casos de convivencia" subtitle={role.scope === "audit" ? "Vista de solo lectura." : "Selecciona un caso para ver su paso a paso."} right={<Toolbar onPrint={printView} />} />
+      <div className="flex flex-col gap-2">
+        {cases.map((c) => {
+          const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+          const dl = daysLeft(step.due);
+          return (
+            <button key={c.id} onClick={() => onOpen(c.id)} className="text-left">
+              <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                <div>
+                  <span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span>
+                  <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
+                  <div style={{ color: C.textSoft }} className="text-xs mt-1">{c.studentLabel}</div>
+                </div>
+                <div className="flex items-center gap-2"><StatusPill dl={dl} /><ChevronRight size={16} color={C.textSoft} /></div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
+function CaseWizard({ onCreate, onCancel }) {
+  const [mode, setMode] = useState("predef");
+  const [typeKey, setTypeKey] = useState("");
+  const [involved, setInvolved] = useState("");
+  const [level, setLevel] = useState("basica");
+  const [relato, setRelato] = useState("");
+  const [analysis, setAnalysis] = useState(null);
+  const chosenKey = mode === "predef" ? typeKey : analysis?.best?.key;
+
+  function create() {
+    if (!chosenKey) return;
+    const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
+    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level }));
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <PageHead title="Nuevo caso de convivencia" subtitle="Elige una situación predefinida o describe un caso nuevo para que el motor lo analice." />
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-6 flex flex-col gap-5">
+        <div className="flex gap-2">
+          {[["predef", "Situación predefinida"], ["libre", "Describir caso nuevo"]].map(([k, l]) => (
+            <button key={k} onClick={() => setMode(k)} className={`text-sm px-4 py-2 rounded-full ${mode === k ? "mbtn" : "mbtn-outline"}`}
+              style={{ background: mode === k ? C.primary : C.cardBg, color: mode === k ? "#fff" : C.textSoft, border: `1px solid ${mode === k ? C.primary : C.cardBorder}` }}>{l}</button>
+          ))}
+        </div>
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Nivel educativo</label>
+          <select value={level} onChange={(e) => setLevel(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+            {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        {mode === "predef" && (
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Tipo de caso</label>
+            <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+              <option value="">Selecciona una opción…</option>
+              {Object.entries(CASE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        )}
+        {mode === "libre" && (
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Describe la situación</label>
+            <textarea value={relato} onChange={(e) => { setRelato(e.target.value); setAnalysis(null); }} rows={4}
+              placeholder="Ej: un estudiante trajo un cuchillo y amenazó a un compañero en el recreo…"
+              className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <div className="mt-2"><Btn onClick={() => setAnalysis(analyzeSituation(relato))} accent={C.seal} disabled={!relato.trim()}><Sparkles size={15} /> Analizar situación</Btn></div>
+            {analysis && (
+              <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-md p-3 mt-3 text-sm">
+                {analysis.hasMatch ? (
+                  <>
+                    <div style={{ color: C.ink }} className="font-medium flex items-center gap-2"><Sparkles size={14} style={{ color: C.seal }} /> Calce sugerido (confianza {analysis.confidence})</div>
+                    <div style={{ color: C.text }} className="mt-1">{analysis.best.label}</div>
+                    <div style={{ color: C.textSoft }} className="text-xs mt-1">Palabras clave: {analysis.best.matched.join(", ") || "—"}</div>
+                    {analysis.alternatives.length > 0 && <div style={{ color: C.textSoft }} className="text-xs mt-1">Alternativas: {analysis.alternatives.map((a) => a.label).join(" · ")}</div>}
+                  </>
+                ) : <div style={{ color: C.textSoft }}>No se detectó un calce claro. Selecciona el tipo manualmente en la pestaña anterior.</div>}
+              </div>
+            )}
+          </div>
+        )}
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante(s) / personas involucradas</label>
+          <input value={involved} onChange={(e) => setInvolved(e.target.value)} placeholder="Ej: Estudiante 6°A (iniciales R.P.)"
+            className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+        </div>
+        {chosenKey && (
+          <div style={{ background: C.paper, border: `1px dashed ${C.seal}` }} className="rounded-md p-3 text-xs flex items-start gap-2">
+            <Network size={14} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
+            <span style={{ color: C.textSoft }}>Redes sugeridas: {CASE_TYPES[chosenKey].network.map((id) => INSTITUTIONS.find((i) => i.id === id)?.label).join(" · ")}</span>
+          </div>
+        )}
+        <div className="flex gap-3 justify-end pt-1">
+          <button onClick={onCancel} className="text-sm px-4 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button>
+          <Btn onClick={create} disabled={!chosenKey}>Generar paso a paso <ChevronRight size={15} /></Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- CASE DETAIL ---------------------------- */
+function CaseDetail({ c, role, setCases, templates, institutions, onBack }) {
+  const isFamily = role.scope === "family";
+  const isAudit = role.scope === "audit";
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [derivOpen, setDerivOpen] = useState(false);
+  const [evType, setEvType] = useState({});
+  const emails = c.emails || [];
+
+  function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
+  function markDone(stepId) {
+    update((x) => ({ ...x, currentStepIdx: Math.max(x.currentStepIdx, stepId + 1),
+      steps: x.steps.map((s) => (s.id === stepId ? { ...s, done: true } : s)),
+      log: [...x.log, { at: new Date(), who: role.label, text: `Paso completado: ${x.steps[stepId].title}` }] }));
+  }
+  function addEvidence(stepId, name, type) {
+    update((x) => ({ ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { name, type }] } : s)),
+      log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }));
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <button onClick={onBack} style={{ color: C.textSoft }} className="text-xs mb-4 flex items-center gap-1 print:hidden">← Volver</button>
+      <div className="flex items-start justify-between mb-1 gap-3 flex-wrap">
+        <div>
+          <div style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</div>
+          <div style={{ ...serif, color: C.ink }} className="text-2xl">{c.type.label}</div>
+        </div>
+        {!isFamily && (
+          <div className="flex items-center gap-2 flex-wrap print:hidden">
+            <Btn variant="ghost" onClick={printView}><Printer size={14} /> Imprimir</Btn>
+            {!isAudit && <Btn variant="ghost" onClick={() => setDerivOpen(true)}><Network size={14} /> Derivar</Btn>}
+            {!isAudit && <Btn variant="ghost" onClick={() => setEmailOpen(true)}><Mail size={14} /> Notificar</Btn>}
+          </div>
+        )}
+      </div>
+      <div style={{ color: C.textSoft }} className="text-sm mb-6">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</div>
+
+      {!isFamily && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3">
+            <Network size={16} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
+            <div>
+              <div style={{ color: C.ink }} className="text-sm font-medium mb-1">Redes de derivación</div>
+              <div style={{ color: C.textSoft }} className="text-sm">{c.type.network.map((id) => institutions.find((i) => i.id === id)?.label).join(" · ")}</div>
+              {c.derivations.length > 0 && <div style={{ color: C.ok }} className="text-xs mt-1">Derivado a: {c.derivations.map((d) => `${d.label} (${d.email})`).join(", ")}</div>}
+            </div>
+          </div>
+          {!isAudit && (
+            <label className="flex items-center gap-2 text-xs print:hidden" style={{ color: C.textSoft }}>
+              <input type="checkbox" checked={c.autoEmails} onChange={() => update((x) => ({ ...x, autoEmails: !x.autoEmails }))} /> Correos automáticos
+            </label>
+          )}
+        </div>
+      )}
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-3 uppercase tracking-wide">{isFamily ? "Avance de su caso" : "Paso a paso normado"}</div>
+      <div className="flex flex-col">
+        {c.steps.map((s, i) => {
+          const dl = daysLeft(s.due);
+          const isCurrent = i === c.currentStepIdx;
+          const isFuture = i > c.currentStepIdx;
+          const color = s.done ? C.ok : isCurrent ? urgencyColor(dl, C) : "#B7BEC6";
+          return (
+            <div key={s.id} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div style={{ background: s.done ? C.ok : "#fff", border: `2px solid ${color}` }} className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                  {s.done ? <CheckCircle2 size={14} color="#fff" /> : <span style={{ color }} className="text-[11px] font-semibold">{i + 1}</span>}
+                </div>
+                {i < c.steps.length - 1 && <div style={{ background: C.cardBorder }} className="w-px flex-1 my-1" />}
+              </div>
+              <div className={`pb-6 flex-1 ${isFuture ? "opacity-60" : ""}`}>
+                <div style={{ color: C.ink }} className="text-sm font-medium">{s.title}</div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                  <span style={{ ...mono, color: C.textSoft }} className="text-[11px]">Vence {fmt(s.due)}</span>
+                  {isCurrent && !s.done && <span style={{ color }} className="text-[11px] font-medium flex items-center gap-1"><Clock size={11} />{dl < 0 ? `Plazo vencido hace ${-dl} días` : `${dl} días restantes`}</span>}
+                  {!isFamily && <span style={{ color: C.textSoft }} className="text-[11px]">Responsable: {s.role}</span>}
+                </div>
+                {!isFamily && <div style={{ color: C.text }} className="text-[12px] mt-1.5 flex items-start gap-1.5"><Sparkles size={11} style={{ color: C.seal }} className="mt-0.5 shrink-0" /> {stepHint(s.title)}</div>}
+                <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="mt-2 inline-flex items-start gap-1.5 rounded px-2.5 py-1.5">
+                  <Scale size={11} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
+                  <span style={{ color: C.textSoft }} className="text-[11px] leading-snug">{s.basis}</span>
+                </div>
+                {s.evidence.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {s.evidence.map((ev, k) => <span key={k} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.textSoft }} className="text-[11px] px-2 py-1 rounded flex items-center gap-1"><Paperclip size={10} /> <b style={{ color: C.ink, fontWeight: 600 }}>{ev.type}</b> · {ev.name}</span>)}
+                  </div>
+                )}
+                {!isFamily && !isAudit && !isFuture && (
+                  <div className="mt-2.5 flex items-center gap-2 flex-wrap print:hidden">
+                    <select value={evType[s.id] || EVIDENCE_TYPES[0]} onChange={(e) => setEvType({ ...evType, [s.id]: e.target.value })} className="text-xs rounded-md p-1.5" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+                      {EVIDENCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <label className="mbtn-outline text-xs px-4 py-1.5 rounded-full cursor-pointer flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                      <Paperclip size={13} /> Subir evidencia
+                      <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addEvidence(s.id, f.name, evType[s.id] || EVIDENCE_TYPES[0]); e.target.value = ""; }} />
+                    </label>
+                    {isCurrent && !s.done && <button onClick={() => markDone(s.id)} style={{ background: C.primary, color: "#fff" }} className="mbtn flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-full"><CheckCircle2 size={13} /> Marcar como completado</button>}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!isFamily && emails.length > 0 && (
+        <div className="mt-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2 uppercase tracking-wide">Correos enviados</div>
+          <div className="flex flex-col gap-2">
+            {emails.map((m, k) => (
+              <div key={k} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 text-xs">
+                <div style={{ color: C.textSoft }}>{m.at} · Para: {m.to}</div>
+                <div style={{ color: C.ink }} className="font-medium mt-0.5">{m.subject}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {emailOpen && <EmailModal c={c} templates={templates} onClose={() => setEmailOpen(false)}
+        onSend={(mail) => { update((x) => ({ ...x, notifiedApoderado: true, emails: [...(x.emails || []), mail], log: [...x.log, { at: new Date(), who: role.label, text: `Correo enviado: ${mail.subject}` }] })); setEmailOpen(false); }} />}
+      {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)}
+        onDerive={(d) => { update((x) => ({ ...x, derivations: [...x.derivations, d], log: [...x.log, { at: new Date(), who: role.label, text: `Derivación enviada a ${d.label} (${d.email}).` }] })); setDerivOpen(false); }} />}
+    </div>
+  );
+}
+
+function EmailModal({ c, templates, onClose, onSend }) {
+  const keys = Object.keys(templates);
+  const [tk, setTk] = useState(keys[0]);
+  const tpl = templates[tk];
+  const subject = fillTemplate(tpl.subject, c);
+  const body = fillTemplate(tpl.body, c);
+  return (
+    <Modal onClose={onClose} title="Enviar correo al apoderado/a">
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Plantilla</label>
+      <select value={tk} onChange={(e) => setTk(e.target.value)} className="mt-1.5 mb-3 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+        {keys.map((k) => <option key={k} value={k}>{templates[k].label}</option>)}
+      </select>
+      <div style={{ color: C.textSoft }} className="text-xs mb-1">Para: {c.apoderadoEmail || "apoderado@correo.cl"}</div>
+      <div style={{ color: C.text }} className="text-sm font-medium mb-3">Asunto: {subject}</div>
+      <div style={{ borderTop: `1px solid ${C.cardBorder}`, color: C.text }} className="pt-3 text-sm whitespace-pre-line">{body}</div>
+      <div className="flex gap-2 justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={() => onSend({ to: c.apoderadoEmail || "apoderado@correo.cl", subject, at: new Date().toISOString().slice(0, 10) })}><Send size={14} /> Enviar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function DerivationModal({ c, institutions, onClose, onDerive }) {
+  const suggested = c.type.network;
+  const [instId, setInstId] = useState(suggested[0] || institutions[0]?.id);
+  const [email, setEmail] = useState(institutions.find((i) => i.id === (suggested[0] || institutions[0]?.id))?.email || "");
+  const inst = institutions.find((i) => i.id === instId);
+  return (
+    <Modal onClose={onClose} title="Derivar a institución">
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Institución</label>
+      <select value={instId} onChange={(e) => { setInstId(e.target.value); setEmail(institutions.find((i) => i.id === e.target.value)?.email || ""); }} className="mt-1.5 mb-3 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+        {institutions.map((i) => <option key={i.id} value={i.id}>{i.label}{suggested.includes(i.id) ? " (sugerida)" : ""}</option>)}
+      </select>
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Correo de destino</label>
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@institucion.cl" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+      <div className="flex gap-2 justify-end mt-4"><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={() => email && onDerive({ label: inst.label, email })} accent={C.seal}><Send size={14} /> Enviar derivación</Btn></div>
+    </Modal>
+  );
+}
+
+/* ------------------------- REPORTES ------------------------------- */
+function ReportsPage({ cases, setCases }) {
+  const [ftype, setFtype] = useState("");
+  const [flevel, setFlevel] = useState("");
+  const [festado, setFestado] = useState("");
+  const enriched = cases.map((c) => {
+    const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+    const dl = daysLeft(step.due);
+    const estado = dl < 0 ? "vencido" : dl <= 3 ? "por vencer" : "al día";
+    return { c, step, dl, estado };
+  });
+  const rows = enriched.filter((r) => (!ftype || r.c.typeKey === ftype) && (!flevel || r.c.level === flevel) && (!festado || r.estado === festado));
+  const byType = Object.entries(CASE_TYPES).map(([k, v]) => ({ label: v.label, n: rows.filter((r) => r.c.typeKey === k).length })).filter((x) => x.n > 0);
+  const maxT = Math.max(...byType.map((x) => x.n), 1);
+
+  return (
+    <div>
+      <PageHead title="Reportes y estadísticas" subtitle="Reporte dinámico: filtra por tipo, nivel y estado. Imprime, exporta (JSON/CSV) o importa respaldos."
+        right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "reporte-casos.json")} onImport={(data) => Array.isArray(data) && setCases(data)} />} />
+      <div className="flex gap-3 mb-4 flex-wrap print:hidden">
+        <select value={ftype} onChange={(e) => setFtype(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+          <option value="">Todos los tipos</option>
+          {Object.entries(CASE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select value={flevel} onChange={(e) => setFlevel(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+          <option value="">Todos los niveles</option>
+          {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={festado} onChange={(e) => setFestado(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+          <option value="">Todos los estados</option>
+          <option value="al día">Al día</option><option value="por vencer">Por vencer</option><option value="vencido">Vencido</option>
+        </select>
+        <Btn variant="ghost" onClick={() => exportCSV(rows.map((r) => ({ ID: r.c.id, Tipo: r.c.type.label, Nivel: LEVELS[r.c.level] || "", Etapa: r.step.title, Estado: r.estado, DiasRestantes: r.dl })), "reporte-casos.csv")}><Download size={15} /> Exportar CSV</Btn>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <StatCard label="Casos (filtrados)" value={rows.length} color={C.ink} />
+        <StatCard label="Vencidos" value={rows.filter((r) => r.estado === "vencido").length} color={C.urgent} />
+        <StatCard label="Al día" value={rows.filter((r) => r.estado === "al día").length} color={C.ok} />
+      </div>
+      {byType.length > 0 && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-6">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Distribución por tipo de caso</div>
+          <div className="flex flex-col gap-2">
+            {byType.map((x) => (
+              <div key={x.label} className="flex items-center gap-3">
+                <div style={{ color: C.textSoft }} className="text-xs w-56 shrink-0 truncate">{x.label}</div>
+                <div className="flex-1 h-3.5 rounded" style={{ background: C.appBg }}><div style={{ width: `${(x.n / maxT) * 100}%`, background: C.seal }} className="h-3.5 rounded" /></div>
+                <div style={{ color: C.ink }} className="text-xs w-5 text-right">{x.n}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.paper, color: C.textSoft }} className="text-xs uppercase">
+            <th className="text-left p-3">ID</th><th className="text-left p-3">Tipo</th><th className="text-left p-3">Nivel</th><th className="text-left p-3">Etapa</th><th className="text-left p-3">Estado</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.c.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+                <td style={{ ...mono, color: C.textSoft }} className="p-3 text-xs">{r.c.id}</td>
+                <td style={{ color: C.ink }} className="p-3">{r.c.type.label}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{LEVELS[r.c.level] || "—"}</td>
+                <td style={{ color: C.textSoft }} className="p-3 text-xs">{r.step.title}</td>
+                <td className="p-3"><StatusPill dl={r.dl} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------- FORMATOS / PLANTILLAS ------------------------ */
+function FormatosPage() {
+  const [sel, setSel] = useState(INTERVIEW_TEMPLATES[0].id);
+  const tpl = INTERVIEW_TEMPLATES.find((t) => t.id === sel);
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Formatos y plantillas" subtitle="Formatos de entrevista y acta listos para imprimir y completar a mano o en pantalla." right={<Toolbar onPrint={printView} />} />
+      <div className="flex gap-2 mb-4 flex-wrap print:hidden">
+        {INTERVIEW_TEMPLATES.map((t) => (
+          <button key={t.id} onClick={() => setSel(t.id)} className="text-sm px-3 py-2 rounded-md"
+            style={{ background: sel === t.id ? C.ink : "transparent", color: sel === t.id ? "#fff" : C.textSoft, border: `1px solid ${sel === t.id ? C.ink : C.cardBorder}` }}>{t.title}</button>
+        ))}
+      </div>
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-6">
+        <div className="flex items-center gap-2 mb-1"><FileText size={18} style={{ color: C.seal }} /><div style={{ ...serif, color: C.ink }} className="text-xl">{tpl.title}</div></div>
+        <div style={{ color: C.textSoft }} className="text-xs mb-5">Destinatario: {tpl.audience} · Recupera Convivencia</div>
+        <div className="flex flex-col gap-4">
+          {tpl.fields.map((f) => (
+            <div key={f}>
+              <div style={{ color: C.ink }} className="text-xs font-medium mb-1.5">{f}</div>
+              <div style={{ borderBottom: `1px solid ${C.paperLine}`, height: f.toLowerCase().includes("relato") || f.toLowerCase().includes("declaración") || f.toLowerCase().includes("desarrollo") ? 64 : 24 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------- NORMATIVA / REDES / AUDIT -------------------- */
+function NormativaPage({ docs }) {
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Motor normativo" subtitle="Normativa nacional + los documentos propios del establecimiento. El reglamento interno se valida contra estos mínimos: puede ser más exigente, nunca menos." right={<Toolbar onPrint={printView} />} />
+      {docs && (
+        <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-4 mb-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Documentos del establecimiento</div>
+          <div className="flex flex-col gap-1.5">
+            {docs.map((d) => (
+              <div key={d.id} className="flex items-center justify-between text-xs">
+                <span style={{ color: C.text }}>{d.name}</span>
+                <span style={{ color: d.status === "Cargado" ? C.ok : C.warn }}>{d.status} · {d.updated}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="flex flex-col gap-2.5">
+        {NORMATIVA_LIBRARY.map((n) => (
+          <div key={n.name} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-start gap-3">
+            <Scale size={16} style={{ color: C.seal }} className="mt-0.5 shrink-0" />
+            <div><div style={{ color: C.ink }} className="text-sm font-medium">{n.name}</div><div style={{ color: C.textSoft }} className="text-sm mt-0.5">{n.desc}</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RedesPage({ institutions }) {
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Redes de derivación" subtitle="Instituciones disponibles según el tipo de caso." right={<Toolbar onPrint={printView} />} />
+      <div className="flex flex-col gap-2.5">
+        {Object.values(CASE_TYPES).map((t) => (
+          <div key={t.label} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
+            <div style={{ color: C.ink }} className="text-sm font-medium mb-1.5">{t.label}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {t.network.map((id) => <span key={id} style={{ background: C.paper, color: C.textSoft, border: `1px solid ${C.paperLine}` }} className="text-xs px-2 py-1 rounded-full">{institutions.find((i) => i.id === id)?.label}</span>)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AuditPanel({ cases }) {
+  return (
+    <div>
+      <PageHead title="Panel de auditoría" subtitle="Vista de solo lectura: estado de plazos y cumplimiento de todos los casos." right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "auditoria.json")} />} />
+      <div className="flex flex-col gap-3">
+        {cases.map((c) => {
+          const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+          const dl = daysLeft(step.due);
+          const overdue = dl < 0;
+          return (
+            <div key={c.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span></div>
+                <StatusPill dl={dl} />
+              </div>
+              <div style={{ color: C.textSoft }} className="text-xs mt-2">Etapa actual: {step.title} · Responsable: {step.role}</div>
+              {overdue && <div style={{ color: C.urgent }} className="text-xs mt-2 flex items-center gap-1.5"><AlertTriangle size={12} /> Excede el plazo máximo de la normativa vigente.</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PerfilesPage({ users, cases }) {
+  return (
+    <div>
+      <PageHead title="Perfiles de la comunidad" subtitle="Integrantes con acceso. Cada perfil ve solo la información de su caso; los relatos y datos sensibles quedan resguardados según el rol." right={<Toolbar onPrint={printView} onExport={() => exportJSON(users, "perfiles.json")} />} />
+      <div className="grid sm:grid-cols-2 gap-3">
+        {users.filter((u) => u.role !== "superadmin").map((u) => {
+          const r = ROLES[u.role];
+          const visible = r.scope === "family" ? "Solo su caso" : r.scope === "audit" ? "Todos (solo lectura)" : r.scope === "limited" ? "Casos asignados" : "Todos los casos";
+          return (
+            <div key={u.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center gap-3">
+              <div style={{ background: C.ink }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={17} color="#fff" /></div>
+              <div className="min-w-0">
+                <div style={{ color: C.ink }} className="text-sm font-medium">{u.name}</div>
+                <div style={{ color: C.textSoft }} className="text-xs">{r.label}</div>
+                <div style={{ color: C.seal }} className="text-[11px] mt-0.5">Acceso: {visible}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- CONFIGURACIÓN ----------------------------- */
+function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, setDocs, session }) {
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("docente");
+  const [tpls, setTpls] = useState(emailTemplates);
+  const [savedTpl, setSavedTpl] = useState(false);
+
+  return (
+    <div className="max-w-2xl">
+      <PageHead title="Configuración" subtitle="Usuarios, documentos del establecimiento y correos automáticos." />
+
+      <Section icon={UserPlus} title="Crear usuario">
+        <div className="flex flex-col gap-3">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del usuario" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+            {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <div><Btn onClick={() => { if (name.trim()) { setUsers([...users, { id: `u${Date.now()}`, name, role, establishmentId: session.establishmentId }]); setName(""); } }}><Plus size={15} /> Agregar usuario</Btn></div>
+        </div>
+      </Section>
+
+      <Section icon={FileText} title="Documentos del establecimiento">
+        <p style={{ color: C.textSoft }} className="text-xs mb-3">Reglamento de Convivencia, PEI y Reglamento de Evaluación. Son propios de cada establecimiento y alimentan el motor junto a la normativa nacional.</p>
+        <div className="flex flex-col gap-2">
+          {docs.map((d, idx) => (
+            <div key={d.id} className="flex items-center justify-between gap-2 p-2 rounded-md" style={{ background: C.paper }}>
+              <div><div style={{ color: C.ink }} className="text-sm">{d.name}</div><div style={{ color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px]">{d.status} · {d.updated}</div></div>
+              <label className="text-xs px-3 py-1.5 rounded-md cursor-pointer flex items-center gap-1.5 shrink-0" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.ink }}>
+                <Upload size={13} /> Cargar
+                <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocs(docs.map((x, k) => (k === idx ? { ...x, status: "Cargado", updated: new Date().toISOString().slice(0, 7) } : x))); e.target.value = ""; }} />
+              </label>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section icon={Mail} title="Personalizar correos automáticos">
+        <p style={{ color: C.textSoft }} className="text-xs mb-3">Campos dinámicos: {"{ID}"}, {"{ETAPA}"}, {"{ESTUDIANTE}"}.</p>
+        <div className="flex flex-col gap-4">
+          {Object.entries(tpls).map(([k, t]) => (
+            <div key={k}>
+              <div style={{ color: C.ink }} className="text-sm font-medium mb-1.5">{t.label}</div>
+              <input value={t.subject} onChange={(e) => setTpls({ ...tpls, [k]: { ...t, subject: e.target.value } })} className="w-full rounded-md p-2 text-sm mb-2" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+              <textarea value={t.body} onChange={(e) => setTpls({ ...tpls, [k]: { ...t, body: e.target.value } })} rows={4} className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-3"><Btn onClick={() => { setEmailTemplates(tpls); setSavedTpl(true); setTimeout(() => setSavedTpl(false), 2000); }}><CheckCircle2 size={15} /> Guardar plantillas</Btn>{savedTpl && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}</div>
+      </Section>
+    </div>
+  );
+}
+
+function Section({ icon: Icon, title, children }) {
+  return (
+    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-6 mb-4">
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-2"><Icon size={16} /> {title}</div>
+      {children}
+    </div>
+  );
+}
+
+/* =================================================================
+   SÚPER ADMINISTRADOR
+   ================================================================= */
+const ADMIN_NAV = {
+  dashboard: { label: "Panel global", icon: LayoutGrid },
+  facturacion: { label: "Facturación y pagos", icon: Wallet },
+  establecimientos: { label: "Establecimientos", icon: Building2 },
+  instituciones: { label: "Instituciones", icon: Network },
+  difusion: { label: "Difusión", icon: Megaphone },
+  metricas: { label: "Métricas por institución", icon: BarChart3 },
+  ranking: { label: "Ranking de cumplimiento", icon: Trophy },
+  configuracion: { label: "Configuración", icon: Settings },
+};
+
+function AdminApp(props) {
+  const { session, setSession } = props;
+  const [view, setView] = useState("dashboard");
+  return (
+    <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
+      <aside style={{ background: C.adminSoft, borderRight: `1px solid ${C.cardBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
+        <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
+          <div style={{ background: C.admin }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Building size={17} color="#fff" /></div>
+          <div><div style={{ ...serif, color: C.admin }} className="text-base leading-tight">Súper Administrador</div><div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Panel central</div></div>
+        </div>
+        <nav className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
+          {Object.keys(ADMIN_NAV).map((key) => {
+            const item = ADMIN_NAV[key]; const Icon = item.icon; const active = view === key;
+            return <button key={key} onClick={() => setView(key)} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition text-left"
+              style={{ background: active ? "#fff" : "transparent", border: `1px solid ${active ? C.admin : "transparent"}`, color: active ? C.admin : C.text, fontWeight: active ? 600 : 500 }}><Icon size={16} /> {item.label}</button>;
+          })}
+        </nav>
+        <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+          <div className="px-2 pt-3 pb-2"><div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-widest">Sesión</div><div style={{ color: C.admin }} className="text-sm font-medium">{session.name}</div></div>
+          <button onClick={() => setSession(null)} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: C.text }}><LogOut size={16} /> Cerrar sesión</button>
+        </div>
+      </aside>
+      <main className="flex-1 p-6 sm:p-10 min-w-0">
+        {view === "dashboard" && <AdminDashboard {...props} />}
+        {view === "facturacion" && <AdminBilling {...props} />}
+        {view === "establecimientos" && <AdminEstablishments {...props} />}
+        {view === "instituciones" && <AdminInstitutions {...props} />}
+        {view === "difusion" && <AdminBroadcast {...props} />}
+        {view === "metricas" && <AdminMetrics {...props} />}
+        {view === "ranking" && <AdminRanking {...props} />}
+        {view === "configuracion" && <AdminConfig {...props} />}
+      </main>
+    </div>
+  );
+}
+
+function AdminDashboard({ establishments, notifications, cases }) {
+  const totals = establishments.reduce((a, e) => ({ activos: a.activos + e.activos, vencidos: a.vencidos + e.vencidos }), { activos: 0, vencidos: 0 });
+  const cumpl = Math.round(establishments.reduce((a, e) => a + e.cumplimiento, 0) / establishments.length);
+  const maxAct = Math.max(...establishments.map((e) => e.activos), 1);
+  const byLevel = Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => ({ k, label: v, n: establishments.filter((e) => e.type === k).length })).filter((x) => x.n > 0);
+  const maxLevel = Math.max(...byLevel.map((x) => x.n), 1);
+  const ranked = [...establishments].sort((a, b) => b.cumplimiento - a.cumplimiento).slice(0, 3);
+  const difusiones = (notifications || []).filter((n) => n.from === "Súper Administrador").slice(0, 3);
+
+  return (
+    <div>
+      <PageHead title="Panel global" subtitle="Dashboard consolidado de todas las instituciones." right={<Toolbar onPrint={printView} onExport={() => exportJSON(establishments, "panel-global.json")} />} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <StatCard label="Establecimientos" value={establishments.length} color={C.admin} />
+        <StatCard label="Casos activos (total)" value={totals.activos} color={C.ink} />
+        <StatCard label="Plazos vencidos (total)" value={totals.vencidos} color={C.urgent} />
+        <StatCard label="Cumplimiento promedio" value={`${cumpl}%`} color={C.ok} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Casos activos por establecimiento</div>
+          <div className="flex flex-col gap-2.5">
+            {establishments.map((e) => (
+              <div key={e.id} className="flex items-center gap-3">
+                <div style={{ color: C.textSoft }} className="text-xs w-36 shrink-0 truncate">{e.name}</div>
+                <div className="flex-1 h-4 rounded" style={{ background: C.appBg }}><div style={{ width: `${(e.activos / maxAct) * 100}%`, background: C.admin }} className="h-4 rounded" /></div>
+                <div style={{ color: C.ink }} className="text-xs w-5 text-right">{e.activos}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Cumplimiento por establecimiento</div>
+          <div className="flex flex-col gap-2.5">
+            {establishments.map((e) => (
+              <div key={e.id} className="flex items-center gap-3">
+                <div style={{ color: C.textSoft }} className="text-xs w-36 shrink-0 truncate">{e.name}</div>
+                <div className="flex-1 h-4 rounded" style={{ background: C.appBg }}><div style={{ width: `${e.cumplimiento}%`, background: e.cumplimiento >= 85 ? C.ok : e.cumplimiento >= 70 ? C.warn : C.urgent }} className="h-4 rounded" /></div>
+                <div style={{ color: C.ink }} className="text-xs w-9 text-right">{e.cumplimiento}%</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Establecimientos por nivel</div>
+          <div className="flex flex-col gap-2.5">
+            {byLevel.map((x) => (
+              <div key={x.k} className="flex items-center gap-3">
+                <div style={{ color: C.textSoft }} className="text-xs w-32 shrink-0 truncate">{x.label}</div>
+                <div className="flex-1 h-3.5 rounded" style={{ background: C.appBg }}><div style={{ width: `${(x.n / maxLevel) * 100}%`, background: C.seal }} className="h-3.5 rounded" /></div>
+                <div style={{ color: C.ink }} className="text-xs w-4 text-right">{x.n}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-1.5"><Trophy size={15} style={{ color: C.seal }} /> Top cumplimiento</div>
+          <div className="flex flex-col gap-2">
+            {ranked.map((e, i) => (
+              <div key={e.id} className="flex items-center gap-2.5">
+                <span style={{ background: i === 0 ? C.seal : C.appBg, color: i === 0 ? "#fff" : C.text }} className="inline-flex w-5 h-5 rounded-full items-center justify-center text-[11px] font-semibold shrink-0">{i + 1}</span>
+                <span style={{ color: C.ink }} className="text-xs flex-1 truncate">{e.name}</span>
+                <span style={{ color: C.ok }} className="text-xs font-medium">{e.cumplimiento}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-1.5"><Megaphone size={15} style={{ color: C.seal }} /> Últimas difusiones</div>
+          <div className="flex flex-col gap-2">
+            {difusiones.length === 0 && <div style={{ color: C.textSoft }} className="text-xs">Aún no se han enviado difusiones.</div>}
+            {difusiones.map((n) => (
+              <div key={n.id}>
+                <div style={{ color: C.ink }} className="text-xs font-medium">{n.title}</div>
+                <div style={{ color: C.textSoft }} className="text-[11px]">{n.at}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminBilling({ establishments, setEstablishments }) {
+  const [ufValue, setUfValue] = useState(UF_VALUE_CLP);
+  const rows = establishments.map((e) => ({ e, b: billing(e) }));
+  const totalUF = rows.reduce((a, r) => a + r.b.total, 0);
+  const paidUF = rows.reduce((a, r) => a + r.b.paid, 0);
+  const owedUF = rows.reduce((a, r) => a + r.b.owed, 0);
+  const students = establishments.reduce((a, e) => a + (e.students || 0), 0);
+  const maxTotal = Math.max(...rows.map((r) => r.b.total), 0.001);
+  const maxRev = Math.max(...MONTHLY_REVENUE_UF.map((m) => m.uf), 1);
+
+  const statusColor = { pagado: C.ok, adeudado: C.urgent, parcial: C.warn, "sin tarifa": C.textSoft };
+  function registrarPago(id) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, paidUF: (e.students || 0) * (e.ufPerStudent || 0) } : e))); }
+  function marcarImpago(id) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, paidUF: 0 } : e))); }
+  function setField(id, field, value) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, [field]: value } : e))); }
+  const cellInput = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  return (
+    <div>
+      <PageHead title="Facturación y pagos" subtitle="Cobro a las instituciones por estudiante, en UF. Estado de lo facturado, pagado y adeudado."
+        right={<Toolbar onPrint={printView} onExport={() => exportCSV(rows.map((r) => ({ Establecimiento: r.e.name, Estudiantes: r.e.students, UF_por_estudiante: r.e.ufPerStudent, Total_UF: r.b.total.toFixed(2), Pagado_UF: r.b.paid.toFixed(2), Adeudado_UF: r.b.owed.toFixed(2), Estado: r.b.status })), "facturacion.csv")} />} />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4">
+          <div style={{ color: C.admin }} className="text-2xl font-semibold">{fmtUF(totalUF)}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1">Facturado del mes · {fmtCLP(totalUF * ufValue)}</div>
+        </div>
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4">
+          <div style={{ color: C.ok }} className="text-2xl font-semibold">{fmtUF(paidUF)}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1">Pagado · {fmtCLP(paidUF * ufValue)}</div>
+        </div>
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4">
+          <div style={{ color: C.urgent }} className="text-2xl font-semibold">{fmtUF(owedUF)}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1">Adeudado · {fmtCLP(owedUF * ufValue)}</div>
+        </div>
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4">
+          <div style={{ color: C.ink }} className="text-2xl font-semibold">{students.toLocaleString("es-CL")}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1">Estudiantes facturados</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap print:hidden">
+        <span style={{ color: C.textSoft }} className="text-xs">Valor UF referencial:</span>
+        <input type="number" value={ufValue} onChange={(e) => setUfValue(Number(e.target.value) || 0)} className="rounded-md p-1.5 text-sm w-28" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+        <span style={{ color: C.textSoft }} className="text-xs">CLP</span>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4 mb-4">
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-1.5"><TrendingUp size={15} style={{ color: C.seal }} /> Ingresos por mes (UF)</div>
+          <div className="flex items-end gap-3 h-40">
+            {MONTHLY_REVENUE_UF.map((m) => (
+              <div key={m.month} className="flex-1 flex flex-col items-center justify-end gap-1.5 h-full">
+                <div style={{ color: C.ink }} className="text-[10px]">{m.uf}</div>
+                <div style={{ height: `${(m.uf / maxRev) * 100}%`, background: C.admin }} className="w-full rounded-t" />
+                <div style={{ color: C.textSoft }} className="text-[11px]">{m.month}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-1 flex items-center gap-1.5"><Coins size={15} style={{ color: C.seal }} /> Pagado vs adeudado por institución</div>
+          <div className="flex items-center gap-3 mb-3 text-[11px]" style={{ color: C.textSoft }}>
+            <span className="flex items-center gap-1"><span style={{ background: C.ok }} className="w-2.5 h-2.5 rounded-sm inline-block" /> Pagado</span>
+            <span className="flex items-center gap-1"><span style={{ background: C.urgent }} className="w-2.5 h-2.5 rounded-sm inline-block" /> Adeudado</span>
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {rows.map((r) => (
+              <div key={r.e.id}>
+                <div className="flex justify-between text-[11px] mb-0.5"><span style={{ color: C.text }}>{r.e.name}</span><span style={{ color: C.textSoft }}>{fmtUF(r.b.total)}</span></div>
+                <div className="flex h-3.5 rounded overflow-hidden" style={{ background: C.appBg, width: `${(r.b.total / maxTotal) * 100}%`, minWidth: "8%" }}>
+                  <div style={{ width: `${r.b.total ? (r.b.paid / r.b.total) * 100 : 0}%`, background: C.ok }} />
+                  <div style={{ width: `${r.b.total ? (r.b.owed / r.b.total) * 100 : 0}%`, background: C.urgent }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.paper, color: C.textSoft }} className="text-xs uppercase">
+            <th className="text-left p-3">Establecimiento</th><th className="text-right p-3">Estud.</th><th className="text-right p-3">UF/est.</th>
+            <th className="text-right p-3">Total</th><th className="text-right p-3">Pagado</th><th className="text-right p-3">Adeudado</th>
+            <th className="text-left p-3">Estado</th><th className="text-right p-3 print:hidden">Acción</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.e.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+                <td style={{ color: C.ink }} className="p-3">{r.e.name}<div style={{ color: C.textSoft }} className="text-xs">{r.e.comuna}</div></td>
+                <td className="p-3 text-right">
+                  <input type="number" min="0" value={r.e.students || 0} onChange={(ev) => setField(r.e.id, "students", Number(ev.target.value) || 0)} className="w-20 rounded-md p-1 text-sm text-right" style={cellInput} />
+                </td>
+                <td className="p-3 text-right">
+                  <input type="number" min="0" step="0.01" value={r.e.ufPerStudent} onChange={(ev) => setField(r.e.id, "ufPerStudent", Number(ev.target.value) || 0)} className="w-16 rounded-md p-1 text-sm text-right" style={cellInput} />
+                </td>
+                <td style={{ color: C.ink }} className="p-3 text-right font-medium">{r.b.total.toFixed(2)}</td>
+                <td style={{ color: C.ok }} className="p-3 text-right">{r.b.paid.toFixed(2)}</td>
+                <td style={{ color: r.b.owed > 0 ? C.urgent : C.textSoft }} className="p-3 text-right">{r.b.owed.toFixed(2)}</td>
+                <td className="p-3"><span style={{ background: C.appBg, color: statusColor[r.b.status] }} className="text-xs font-medium px-2 py-1 rounded-full capitalize">{r.b.status}</span></td>
+                <td className="p-3 text-right print:hidden">
+                  {r.b.status === "pagado"
+                    ? <button onClick={() => marcarImpago(r.e.id)} style={{ color: C.textSoft }} className="text-xs">Revertir</button>
+                    : <button onClick={() => registrarPago(r.e.id)} style={{ background: C.ok, color: "#fff" }} className="mbtn text-xs px-3 py-1.5 rounded-full inline-flex items-center gap-1"><CheckCircle size={12} /> Registrar pago</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminEstablishments({ establishments }) {
+  return (
+    <div>
+      <PageHead title="Establecimientos" subtitle="Instituciones registradas en la plataforma." right={<Toolbar onPrint={printView} onExport={() => exportJSON(establishments, "establecimientos.json")} />} />
+      <div className="flex flex-col gap-2">
+        {establishments.map((e) => (
+          <div key={e.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div><div style={{ color: C.ink }} className="text-sm font-medium">{e.name}</div><div style={{ color: C.textSoft }} className="text-xs">{e.comuna} · {LEVELS[e.type]} · {e.sostenedor}</div></div>
+            <div className="flex items-center gap-4 text-xs">
+              <span style={{ color: C.textSoft }}>Activos: <b style={{ color: C.ink }}>{e.activos}</b></span>
+              <span style={{ color: C.textSoft }}>Vencidos: <b style={{ color: C.urgent }}>{e.vencidos}</b></span>
+              <span style={{ color: C.textSoft }}>Cumpl.: <b style={{ color: C.ok }}>{e.cumplimiento}%</b></span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminInstitutions({ institutions, setInstitutions }) {
+  return (
+    <div>
+      <PageHead title="Instituciones de derivación" subtitle="Directorio global. Los correos se usan como sugerencia al derivar." right={<Toolbar onPrint={printView} onExport={() => exportJSON(institutions, "instituciones.json")} onImport={(d) => Array.isArray(d) && setInstitutions(d)} />} />
+      <div className="flex flex-col gap-2">
+        {institutions.map((i, idx) => (
+          <div key={i.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[180px]"><div style={{ color: C.ink }} className="text-sm font-medium">{i.label}</div><div style={{ color: C.textSoft }} className="text-xs">{i.type}</div></div>
+            <input value={i.email} onChange={(e) => setInstitutions(institutions.map((x, k) => (k === idx ? { ...x, email: e.target.value } : x)))} placeholder="correo@institucion.cl" className="rounded-md p-2 text-sm min-w-[220px]" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminBroadcast({ establishments, notifications, setNotifications }) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [target, setTarget] = useState("todos");
+  const [sent, setSent] = useState(false);
+  function send() {
+    if (!title.trim()) return;
+    const alcance = target === "todos" ? "Todos los establecimientos" : establishments.find((e) => e.id === target)?.name;
+    setNotifications([{ id: `n${Date.now()}`, from: "Súper Administrador", title, body: `${body}${body ? " " : ""}(${alcance})`, at: new Date().toISOString().slice(0, 10), read: false }, ...notifications]);
+    setTitle(""); setBody(""); setSent(true); setTimeout(() => setSent(false), 2500);
+  }
+  return (
+    <div className="max-w-2xl">
+      <PageHead title="Difusión" subtitle="Envía información a los establecimientos. Aparece en la campana del portal usuario." />
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-6 flex flex-col gap-3">
+        <select value={target} onChange={(e) => setTarget(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+          <option value="todos">Todos los establecimientos</option>
+          {establishments.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título del mensaje" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} placeholder="Contenido…" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+        <div className="flex items-center gap-3"><Btn onClick={send} accent={C.admin}><Megaphone size={15} /> Enviar difusión</Btn>{sent && <span style={{ color: C.ok }} className="text-sm flex items-center gap-1"><CheckCircle2 size={15} /> Enviado</span>}</div>
+      </div>
+    </div>
+  );
+}
+
+function AdminMetrics({ establishments }) {
+  const max = Math.max(...establishments.map((e) => e.activos), 1);
+  return (
+    <div>
+      <PageHead title="Métricas por institución" subtitle="Tablero comparativo. Cada métrica se puede revisar por establecimiento." right={<Toolbar onPrint={printView} onExport={() => exportJSON(establishments, "metricas.json")} />} />
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-4">
+        <div style={{ color: C.ink }} className="text-sm font-medium mb-3">Casos activos por establecimiento</div>
+        <div className="flex flex-col gap-2.5">
+          {establishments.map((e) => (
+            <div key={e.id} className="flex items-center gap-3">
+              <div style={{ color: C.textSoft }} className="text-xs w-40 shrink-0 truncate">{e.name}</div>
+              <div className="flex-1 h-4 rounded" style={{ background: C.appBg }}><div style={{ width: `${(e.activos / max) * 100}%`, background: C.admin }} className="h-4 rounded" /></div>
+              <div style={{ color: C.ink }} className="text-xs w-6 text-right">{e.activos}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {establishments.map((e) => (
+          <div key={e.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
+            <div style={{ color: C.ink }} className="text-sm font-medium mb-2">{e.name}</div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div><div style={{ color: C.ink }} className="text-lg font-semibold">{e.activos}</div><div style={{ color: C.textSoft }} className="text-[10px]">Activos</div></div>
+              <div><div style={{ color: C.urgent }} className="text-lg font-semibold">{e.vencidos}</div><div style={{ color: C.textSoft }} className="text-[10px]">Vencidos</div></div>
+              <div><div style={{ color: C.ok }} className="text-lg font-semibold">{e.cumplimiento}%</div><div style={{ color: C.textSoft }} className="text-[10px]">Cumpl.</div></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminRanking({ establishments }) {
+  const ranked = [...establishments].sort((a, b) => b.cumplimiento - a.cumplimiento);
+  return (
+    <div>
+      <PageHead title="Ranking de cumplimiento" subtitle="Establecimientos ordenados por cumplimiento normativo." right={<Toolbar onPrint={printView} onExport={() => exportCSV(ranked.map((e, i) => ({ Posicion: i + 1, Establecimiento: e.name, Comuna: e.comuna, Cumplimiento: e.cumplimiento, Activos: e.activos, Vencidos: e.vencidos })), "ranking.csv")} />} />
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr style={{ background: C.paper, color: C.textSoft }} className="text-xs uppercase">
+            <th className="text-left p-3">#</th><th className="text-left p-3">Establecimiento</th><th className="text-left p-3">Cumplimiento</th><th className="text-left p-3">Vencidos</th></tr></thead>
+          <tbody>
+            {ranked.map((e, i) => (
+              <tr key={e.id} style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+                <td className="p-3"><span style={{ background: i === 0 ? C.seal : C.appBg, color: i === 0 ? "#fff" : C.text }} className="inline-flex w-6 h-6 rounded-full items-center justify-center text-xs font-semibold">{i + 1}</span></td>
+                <td style={{ color: C.ink }} className="p-3">{e.name}<span style={{ color: C.textSoft }} className="text-xs"> · {e.comuna}</span></td>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-28 h-2.5 rounded" style={{ background: C.appBg }}><div style={{ width: `${e.cumplimiento}%`, background: e.cumplimiento >= 85 ? C.ok : e.cumplimiento >= 70 ? C.warn : C.urgent }} className="h-2.5 rounded" /></div>
+                    <span style={{ color: C.ink }} className="text-xs">{e.cumplimiento}%</span>
+                  </div>
+                </td>
+                <td style={{ color: e.vencidos > 0 ? C.urgent : C.textSoft }} className="p-3 text-xs">{e.vencidos}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminConfig({ establishments, setEstablishments }) {
+  const [name, setName] = useState("");
+  const [comuna, setComuna] = useState("");
+  const [type, setType] = useState("basica");
+  return (
+    <div className="max-w-2xl">
+      <PageHead title="Configuración" subtitle="Alta de establecimientos en la plataforma." />
+      <Section icon={Building2} title="Registrar establecimiento">
+        <div className="flex flex-col gap-3">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          <input value={comuna} onChange={(e) => setComuna(e.target.value)} placeholder="Comuna" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+            {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <div><Btn accent={C.admin} onClick={() => { if (name.trim()) { setEstablishments([...establishments, { id: `e${Date.now()}`, name, comuna, type, sostenedor: "—", activos: 0, vencidos: 0, cumplimiento: 100, students: 0, ufPerStudent: 0.05, paidUF: 0 }]); setName(""); setComuna(""); } }}><Plus size={15} /> Registrar</Btn></div>
+        </div>
+      </Section>
+    </div>
+  );
+}
