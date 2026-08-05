@@ -5,13 +5,13 @@ import {
   LayoutGrid, Network, ClipboardCheck, Settings, FolderOpen, Bell,
   Printer, Download, Upload, LogOut, Sparkles, Paperclip,
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
-  Wallet, Coins, TrendingUp, CheckCircle,
+  Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
   ESTABLISHMENTS, USERS, INITIAL_NOTIFICATIONS, EVIDENCE_TYPES,
   DEFAULT_EMAIL_TEMPLATES, INTERVIEW_TEMPLATES, DEFAULT_ESTABLISHMENT_DOCS,
-  UF_VALUE_CLP, MONTHLY_REVENUE_UF,
+  UF_VALUE_CLP, MONTHLY_REVENUE_UF, STUDENTS, MEASURE_TYPES,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
@@ -37,9 +37,9 @@ const mono = { fontFamily: "'Roboto Mono', ui-monospace, monospace" };
 
 /* --------------------------- SEED --------------------------------- */
 const initialCases = [
-  buildCase("RC-2026-014", "bullying", "Estudiante 7°B (iniciales J.M.)", 40, 4, "apoderado.jm@correo.cl"),
-  buildCase("RC-2026-021", "agresionGrave", "Estudiante 2°M (iniciales F.T.)", 12, 2, "apoderado.ft@correo.cl"),
-  buildCase("RC-2026-009", "discriminacion", "Estudiante 4°B (iniciales C.R.)", 58, 5, "apoderado.cr@correo.cl"),
+  buildCase("RC-2026-014", "bullying", "Estudiante 7°B (iniciales J.M.)", 40, 4, "apoderado.jm@correo.cl", { studentId: "s1", curso: "7°B" }),
+  buildCase("RC-2026-021", "agresionGrave", "Estudiante 2°M (iniciales F.T.)", 12, 2, "apoderado.ft@correo.cl", { studentId: "s2", curso: "2°M" }),
+  buildCase("RC-2026-009", "discriminacion", "Estudiante 4°B (iniciales C.R.)", 58, 5, "apoderado.cr@correo.cl", { studentId: "s3", curso: "4°B" }),
 ];
 
 /* =================================================================
@@ -54,6 +54,7 @@ export default function App() {
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
   const [docs, setDocs] = useState(DEFAULT_ESTABLISHMENT_DOCS);
+  const [students, setStudents] = useState(STUDENTS);
 
   if (!session) return <Login users={users} onLogin={setSession} />;
 
@@ -61,6 +62,7 @@ export default function App() {
     session, setSession, cases, setCases, users, setUsers,
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
+    students, setStudents,
   };
 
   const role = ROLES[session.role];
@@ -212,14 +214,15 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "casos", "nuevo", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
-  audit: ["dashboard", "casos", "reportes", "auditoria", "normativa"],
-  limited: ["dashboard", "casos", "nuevo", "formatos", "normativa"],
+  admin: ["dashboard", "casos", "expedientes", "nuevo", "reportes", "formatos", "normativa", "redes", "auditoria", "perfiles", "configuracion"],
+  audit: ["dashboard", "casos", "expedientes", "reportes", "auditoria", "normativa"],
+  limited: ["dashboard", "casos", "expedientes", "nuevo", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
 };
 const PORTAL_NAV = {
   dashboard: { label: "Panel general", icon: LayoutGrid },
   casos: { label: "Casos de convivencia", icon: FolderOpen },
+  expedientes: { label: "Expedientes de estudiantes", icon: ClipboardList },
   nuevo: { label: "Nuevo caso", icon: Plus },
   reportes: { label: "Reportes y estadísticas", icon: BarChart3 },
   formatos: { label: "Formatos y plantillas", icon: FileText },
@@ -235,11 +238,15 @@ function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
   const role = ROLES[session.role];
   const navKeys = PORTAL_NAV_BY_SCOPE[role.scope];
+  const { students, setStudents } = props;
   const [view, setView] = useState("dashboard");
   const [selectedCaseId, setSelectedCaseId] = useState(cases[0]?.id);
+  const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id);
   const selectedCase = cases.find((c) => c.id === selectedCaseId);
+  const selectedStudent = students.find((s) => s.id === selectedStudentId);
   const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
   function openCase(id) { setSelectedCaseId(id); setView("caso"); }
+  function openStudent(id) { setSelectedStudentId(id); setView("expediente"); }
 
   return (
     <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
@@ -248,9 +255,11 @@ function PortalApp(props) {
       <main className="flex-1 p-6 sm:p-10 min-w-0">
         <div className="flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
         {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
-        {view === "nuevo" && <CaseWizard onCreate={(c) => { setCases([c, ...cases]); setSelectedCaseId(c.id); setView("caso"); }} onCancel={() => setView("dashboard")} />}
+        {view === "nuevo" && <CaseWizard students={students} setStudents={setStudents} onCreate={(c) => { setCases([c, ...cases]); setSelectedCaseId(c.id); setView("caso"); }} onCancel={() => setView("dashboard")} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
-        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
+        {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
+        {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
+        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} />}
         {view === "formatos" && <FormatosPage />}
         {view === "normativa" && <NormativaPage docs={props.docs} />}
@@ -348,7 +357,7 @@ function Dashboard({ role, cases, onOpenCase, onGo }) {
                 <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
                 <div style={{ color: C.textSoft }} className="text-xs mt-1">{step.title}</div>
               </div>
-              <StatusPill dl={dl} />
+              {c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0">Cerrado</span> : <StatusPill dl={dl} />}
             </div>
           </button>
         ))}
@@ -374,7 +383,7 @@ function CaseList({ cases, onOpen, role }) {
                   <span style={{ color: C.ink }} className="text-sm ml-3">{c.type.label}</span>
                   <div style={{ color: C.textSoft }} className="text-xs mt-1">{c.studentLabel}</div>
                 </div>
-                <div className="flex items-center gap-2"><StatusPill dl={dl} /><ChevronRight size={16} color={C.textSoft} /></div>
+                <div className="flex items-center gap-2">{c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Cerrado</span> : <StatusPill dl={dl} />}<ChevronRight size={16} color={C.textSoft} /></div>
               </div>
             </button>
           );
@@ -384,9 +393,184 @@ function CaseList({ cases, onOpen, role }) {
   );
 }
 
+/* ------------------- EXPEDIENTES DE ESTUDIANTES ------------------- */
+function StudentsPage({ students, cases, onOpen }) {
+  return (
+    <div>
+      <PageHead title="Expedientes de estudiantes" subtitle="Cada estudiante tiene un expediente único que reúne sus casos e historial (entrevistas, citaciones, compromisos y medidas)." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "expedientes.json")} />} />
+      <div className="flex flex-col gap-2">
+        {students.map((s) => {
+          const scases = cases.filter((c) => c.studentId === s.id);
+          const abiertos = scases.filter((c) => !c.closed).length;
+          return (
+            <button key={s.id} onClick={() => onOpen(s.id)} className="text-left">
+              <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                <div className="flex items-center gap-3">
+                  <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={18} color="#fff" /></div>
+                  <div>
+                    <div style={{ color: C.ink }} className="text-sm font-medium">{s.name}</div>
+                    <div style={{ color: C.textSoft }} className="text-xs">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <span style={{ color: C.textSoft }}>Casos: <b style={{ color: C.ink }}>{scases.length}</b></span>
+                  <span style={{ color: C.textSoft }}>Abiertos: <b style={{ color: abiertos ? C.warn : C.ok }}>{abiertos}</b></span>
+                  <span style={{ color: C.textSoft }}>Medidas: <b style={{ color: C.ink }}>{(s.medidas || []).length}</b></span>
+                  <ChevronRight size={16} color={C.textSoft} />
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ExpBlock({ icon: Icon, title, children }) {
+  return (
+    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-4">
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-2"><Icon size={16} style={{ color: C.primary }} /> {title}</div>
+      {children}
+    </div>
+  );
+}
+
+function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
+  const readOnly = role.scope === "audit" || role.scope === "family";
+  const scases = cases.filter((c) => c.studentId === s.id);
+  const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "" });
+  const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
+  const [com, setCom] = useState("");
+  const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "" });
+
+  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === s.id ? fn(x) : x))); }
+  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  function toggleCompromiso(cid) { update((x) => ({ ...x, compromisos: x.compromisos.map((k) => (k.id === cid ? { ...k, cumplido: !k.cumplido } : k)) })); }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const chip = (bg, color, txt) => <span style={{ background: bg, color }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{txt}</span>;
+
+  return (
+    <div className="max-w-3xl">
+      <button onClick={onBack} style={{ color: C.textSoft }} className="text-xs mb-4 flex items-center gap-1 print:hidden">← Volver a expedientes</button>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-6">
+        <div className="flex items-center gap-3">
+          <div style={{ background: C.primary }} className="w-11 h-11 rounded-full flex items-center justify-center shrink-0"><UserCircle size={22} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-2xl">{s.name}</div>
+            <div style={{ color: C.textSoft }} className="text-sm">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""} · Expediente digital único</div>
+          </div>
+        </div>
+        <Toolbar onPrint={printView} />
+      </div>
+
+      <ExpBlock icon={FolderOpen} title={`Casos del estudiante (${scases.length})`}>
+        {scases.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">Sin casos registrados.</div>}
+        <div className="flex flex-col gap-2">
+          {scases.map((c) => {
+            const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
+            const dl = daysLeft(step.due);
+            return (
+              <button key={c.id} onClick={() => onOpenCase(c.id)} className="text-left">
+                <div style={{ border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                  <div><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-2">{c.type.label}</span></div>
+                  {c.closed ? chip(C.ok + "22", C.ok, "Cerrado") : <StatusPill dl={dl} />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </ExpBlock>
+
+      <ExpBlock icon={UserCircle} title={`Entrevistas (${(s.entrevistas || []).length})`}>
+        <div className="flex flex-col gap-2 mb-3">
+          {(s.entrevistas || []).map((e) => (
+            <div key={e.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs">
+              <div style={{ color: C.ink }} className="font-medium">{e.con} · {e.fecha || "sin fecha"}</div>
+              <div style={{ color: C.textSoft }}>{e.resumen}</div>
+            </div>
+          ))}
+        </div>
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <input type="date" value={ent.fecha} onChange={(e) => setEnt({ ...ent, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <input value={ent.con} onChange={(e) => setEnt({ ...ent, con: e.target.value })} placeholder="Con quién" className="rounded-md p-2 text-sm" style={inp} />
+            <input value={ent.resumen} onChange={(e) => setEnt({ ...ent, resumen: e.target.value })} placeholder="Resumen" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+            <Btn onClick={() => { if (ent.resumen.trim()) { add("entrevistas", ent); setEnt({ fecha: "", con: "Apoderado/a", resumen: "" }); } }}><Plus size={14} /> Agregar</Btn>
+          </div>
+        )}
+      </ExpBlock>
+
+      <ExpBlock icon={CalendarClock} title={`Citaciones (${(s.citaciones || []).length})`}>
+        <div className="flex flex-col gap-2 mb-3">
+          {(s.citaciones || []).map((c) => (
+            <div key={c.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2 flex-wrap">
+              <div><span style={{ color: C.ink }} className="font-medium">{c.motivo}</span> <span style={{ color: C.textSoft }}>· {c.fecha || "sin fecha"}{c.estado === "No asiste" && c.excusa ? ` · Excusa: ${c.excusa}` : ""}</span></div>
+              {c.estado === "Asiste" ? chip(C.ok + "22", C.ok, "Asiste") : chip(C.warn + "22", C.warn, "No asiste")}
+            </div>
+          ))}
+        </div>
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <input type="date" value={cit.fecha} onChange={(e) => setCit({ ...cit, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <input value={cit.motivo} onChange={(e) => setCit({ ...cit, motivo: e.target.value })} placeholder="Motivo" className="rounded-md p-2 text-sm flex-1 min-w-[140px]" style={inp} />
+            <select value={cit.estado} onChange={(e) => setCit({ ...cit, estado: e.target.value })} className="rounded-md p-2 text-sm" style={inp}><option>Asiste</option><option>No asiste</option></select>
+            {cit.estado === "No asiste" && <input value={cit.excusa} onChange={(e) => setCit({ ...cit, excusa: e.target.value })} placeholder="Excusa" className="rounded-md p-2 text-sm" style={inp} />}
+            <Btn onClick={() => { if (cit.motivo.trim()) { add("citaciones", cit); setCit({ fecha: "", motivo: "", estado: "Asiste", excusa: "" }); } }}><Plus size={14} /> Agregar</Btn>
+          </div>
+        )}
+      </ExpBlock>
+
+      <ExpBlock icon={CheckCircle2} title={`Compromisos (${(s.compromisos || []).length})`}>
+        <div className="flex flex-col gap-1.5 mb-3">
+          {(s.compromisos || []).map((k) => (
+            <label key={k.id} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={k.cumplido} onChange={() => !readOnly && toggleCompromiso(k.id)} />
+              <span style={{ color: k.cumplido ? C.textSoft : C.ink, textDecoration: k.cumplido ? "line-through" : "none" }}>{k.texto}</span>
+            </label>
+          ))}
+        </div>
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <input value={com} onChange={(e) => setCom(e.target.value)} placeholder="Nuevo compromiso" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+            <Btn onClick={() => { if (com.trim()) { add("compromisos", { texto: com, cumplido: false }); setCom(""); } }}><Plus size={14} /> Agregar</Btn>
+          </div>
+        )}
+      </ExpBlock>
+
+      <ExpBlock icon={Scale} title={`Medidas (${(s.medidas || []).length})`}>
+        <div className="flex flex-col gap-2 mb-3">
+          {(s.medidas || []).map((m) => {
+            const mt = MEASURE_TYPES.find((t) => t.value === m.tipo);
+            const col = m.tipo === "disciplinaria" ? C.urgent : m.tipo === "pedagogica" ? C.warn : C.primary;
+            return (
+              <div key={m.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2 flex-wrap">
+                <div><span style={{ color: C.ink }}>{m.descripcion}</span> <span style={{ color: C.textSoft }}>· {m.fecha || "sin fecha"}</span></div>
+                {chip(col + "22", col, mt ? mt.label : m.tipo)}
+              </div>
+            );
+          })}
+        </div>
+        {!readOnly && (
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <select value={med.tipo} onChange={(e) => setMed({ ...med, tipo: e.target.value })} className="rounded-md p-2 text-sm" style={inp}>
+              {MEASURE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+            <input value={med.descripcion} onChange={(e) => setMed({ ...med, descripcion: e.target.value })} placeholder="Descripción" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+            <input type="date" value={med.fecha} onChange={(e) => setMed({ ...med, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+            <Btn onClick={() => { if (med.descripcion.trim()) { add("medidas", med); setMed({ tipo: "formativa", descripcion: "", fecha: "" }); } }}><Plus size={14} /> Agregar</Btn>
+          </div>
+        )}
+      </ExpBlock>
+    </div>
+  );
+}
+
 /* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
-function CaseWizard({ onCreate, onCancel }) {
+function CaseWizard({ students, setStudents, onCreate, onCancel }) {
   const [mode, setMode] = useState("predef");
+  const [studentId, setStudentId] = useState("");
   const [typeKey, setTypeKey] = useState("");
   const [involved, setInvolved] = useState("");
   const [level, setLevel] = useState("basica");
@@ -399,7 +583,12 @@ function CaseWizard({ onCreate, onCancel }) {
   function create() {
     if (!chosenKey) return;
     const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
-    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f }));
+    let sid = studentId;
+    if (!sid) {
+      sid = `s${Date.now()}`;
+      setStudents((prev) => [...prev, { id: sid, name: involved || "Estudiante sin identificar", curso: f.curso || "", nivel: level, entrevistas: [], citaciones: [], compromisos: [], medidas: [] }]);
+    }
+    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: sid }));
   }
 
   return (
@@ -449,6 +638,15 @@ function CaseWizard({ onCreate, onCancel }) {
           </div>
         )}
         <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Expediente del estudiante</label>
+          <select value={studentId} onChange={(e) => { const v = e.target.value; setStudentId(v); const s = students.find((x) => x.id === v); if (s) { setInvolved(s.name); setField("curso", s.curso); } }}
+            className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+            <option value="">➕ Nuevo estudiante (se crea con los datos de abajo)</option>
+            {students.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.curso}</option>)}
+          </select>
+        </div>
+
+        <div>
           <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante(s) / personas involucradas</label>
           <input value={involved} onChange={(e) => setInvolved(e.target.value)} placeholder="Ej: Estudiante 6°A (iniciales R.P.)"
             className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
@@ -480,15 +678,20 @@ function CaseWizard({ onCreate, onCancel }) {
 }
 
 /* ------------------------- CASE DETAIL ---------------------------- */
-function CaseDetail({ c, role, setCases, templates, institutions, onBack }) {
+function CaseDetail({ c, role, setCases, templates, institutions, student, onOpenStudent, onBack }) {
   const isFamily = role.scope === "family";
   const isAudit = role.scope === "audit";
   const [emailOpen, setEmailOpen] = useState(false);
   const [derivOpen, setDerivOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
   const [evType, setEvType] = useState({});
   const emails = c.emails || [];
 
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
+  function closeCase(summary) {
+    update((x) => ({ ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }));
+    setCloseOpen(false);
+  }
   function markDone(stepId) {
     update((x) => ({ ...x, currentStepIdx: Math.max(x.currentStepIdx, stepId + 1),
       steps: x.steps.map((s) => (s.id === stepId ? { ...s, done: true } : s)),
@@ -512,10 +715,20 @@ function CaseDetail({ c, role, setCases, templates, institutions, onBack }) {
             <Btn variant="ghost" onClick={printView}><Printer size={14} /> Imprimir</Btn>
             {!isAudit && <Btn variant="ghost" onClick={() => setDerivOpen(true)}><Network size={14} /> Derivar</Btn>}
             {!isAudit && <Btn variant="ghost" onClick={() => setEmailOpen(true)}><Mail size={14} /> Notificar</Btn>}
+            {!isAudit && !c.closed && <Btn variant="ghost" onClick={() => setCloseOpen(true)}><Lock size={14} /> Cerrar caso</Btn>}
           </div>
         )}
       </div>
-      <div style={{ color: C.textSoft }} className="text-sm mb-6">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</div>
+      <div className="flex items-center gap-3 flex-wrap mb-6">
+        <span style={{ color: C.textSoft }} className="text-sm">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</span>
+        {student && onOpenStudent && <button onClick={() => onOpenStudent(student.id)} style={{ color: C.primary }} className="text-xs flex items-center gap-1 print:hidden"><ClipboardList size={13} /> Ver expediente</button>}
+      </div>
+      {c.closed && (
+        <div style={{ background: C.ok + "18", border: `1px solid ${C.ok}` }} className="rounded-lg p-3 mb-4 flex items-start gap-2">
+          <Lock size={15} style={{ color: C.ok }} className="mt-0.5 shrink-0" />
+          <div><div style={{ color: C.ok }} className="text-sm font-medium">Caso cerrado{c.closedAt ? ` · ${fmt(c.closedAt)}` : ""}</div>{c.closeSummary && <div style={{ color: C.textSoft }} className="text-xs mt-0.5">{c.closeSummary}</div>}</div>
+        </div>
+      )}
 
       {!isFamily && (c.fechaHecho || c.hora || c.lugar || c.curso || c.testigos || c.adultosRef) && (
         <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
@@ -617,7 +830,20 @@ function CaseDetail({ c, role, setCases, templates, institutions, onBack }) {
         onSend={(mail) => { update((x) => ({ ...x, notifiedApoderado: true, emails: [...(x.emails || []), mail], log: [...x.log, { at: new Date(), who: role.label, text: `Correo enviado: ${mail.subject}` }] })); setEmailOpen(false); }} />}
       {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)}
         onDerive={(d) => { update((x) => ({ ...x, derivations: [...x.derivations, d], log: [...x.log, { at: new Date(), who: role.label, text: `Derivación enviada a ${d.label} (${d.email}).` }] })); setDerivOpen(false); }} />}
+      {closeOpen && <CloseCaseModal onClose={() => setCloseOpen(false)} onConfirm={closeCase} />}
     </div>
+  );
+}
+
+function CloseCaseModal({ onClose, onConfirm }) {
+  const [summary, setSummary] = useState("");
+  return (
+    <Modal onClose={onClose} title="Cerrar caso">
+      <p style={{ color: C.textSoft }} className="text-sm mb-3">Al cerrar el caso se registra la fecha y un resumen de cierre. Queda en el historial y en el expediente del estudiante.</p>
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Resumen de cierre</label>
+      <textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={4} placeholder="Medidas cumplidas, acuerdos alcanzados, estado final…" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+      <div className="flex gap-2 justify-end mt-4"><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={() => onConfirm(summary)} accent={C.ok}><Lock size={14} /> Cerrar caso</Btn></div>
+    </Modal>
   );
 }
 

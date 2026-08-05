@@ -49,6 +49,7 @@ export function buildCase(id, typeKey, studentLabel, startOffsetDays, currentSte
     apoderadoEmail, notifiedApoderado: currentStepIdx > 0,
     derivations: [],
     autoEmails: false,
+    closed: false, closedAt: null, closeSummary: "",
     log: [{ at: start, who: "Coordinador de Convivencia", text: "Caso creado a partir del relato inicial." }],
     ...extra,
   };

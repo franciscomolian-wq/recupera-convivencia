@@ -293,6 +293,28 @@ export const MONTHLY_REVENUE_UF = [
 ];
 
 /* ---------------------------------------------------------------
+   ESTUDIANTES — expediente digital único por estudiante
+   Reúne su historial transversal a todos sus casos.
+   ---------------------------------------------------------------- */
+export const STUDENTS = [
+  {
+    id: "s1", name: "Estudiante J. M.", curso: "7°B", nivel: "basica", establishmentId: "e1",
+    entrevistas: [{ id: "en1", fecha: "2026-06-30", con: "Apoderado/a", resumen: "Se informa la situación y se acuerdan medidas de acompañamiento." }],
+    citaciones: [{ id: "ci1", fecha: "2026-07-05", motivo: "Entrevista de convivencia", estado: "Asiste", excusa: "" }],
+    compromisos: [{ id: "co1", texto: "Asistir a talleres de habilidades sociales", cumplido: false }],
+    medidas: [{ id: "me1", tipo: "formativa", descripcion: "Participación en programa de mediación entre pares", fecha: "2026-07-06" }],
+  },
+  { id: "s2", name: "Estudiante F. T.", curso: "2°M", nivel: "media", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [] },
+  { id: "s3", name: "Estudiante C. R.", curso: "4°B", nivel: "basica", establishmentId: "e1", entrevistas: [], citaciones: [], compromisos: [], medidas: [] },
+];
+
+export const MEASURE_TYPES = [
+  { value: "formativa", label: "Medida formativa" },
+  { value: "disciplinaria", label: "Medida disciplinaria" },
+  { value: "pedagogica", label: "Medida / acuerdo pedagógico" },
+];
+
+/* ---------------------------------------------------------------
    USUARIOS (autenticación simulada)
    ---------------------------------------------------------------- */
 export const USERS = [
