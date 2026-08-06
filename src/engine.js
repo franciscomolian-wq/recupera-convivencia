@@ -37,13 +37,19 @@ export function buildCase(id, typeKey, studentLabel, startOffsetDays, currentSte
   const type = CASE_TYPES[typeKey];
   const start = new Date();
   start.setDate(start.getDate() - startOffsetDays);
-  const steps = type.steps.map((s, i) => ({
-    ...s,
-    id: i,
-    due: addBusinessDays(start, s.days),
-    done: i < currentStepIdx,
-    evidence: [],
-  }));
+  // Salvaguarda: los plazos nunca decrecen entre pasos → el paso a paso
+  // queda siempre en orden cronológico aunque un dato venga mal cargado.
+  let accDays = 0;
+  const steps = type.steps.map((s, i) => {
+    accDays = Math.max(accDays, s.days);
+    return {
+      ...s,
+      id: i,
+      due: addBusinessDays(start, accDays),
+      done: i < currentStepIdx,
+      evidence: [],
+    };
+  });
   return {
     id, typeKey, type, studentLabel, start, steps, currentStepIdx,
     apoderadoEmail, notifiedApoderado: currentStepIdx > 0,

@@ -112,8 +112,8 @@ export const CASE_TYPES = {
     steps: [
       { title: "Resguardo inmediato de la integridad de las personas", days: 0, role: "Director/a / Inspector General", basis: "Ley 21.128 (Aula Segura) — actuación inmediata ante hechos graves" },
       { title: "Denuncia obligatoria a Carabineros/PDI y, si corresponde, a Fiscalía", days: 1, role: "Director/a", basis: "Código Procesal Penal, art. 175 y 176 — denuncia obligatoria de funcionarios públicos" },
-      { title: "Medida cautelar de separación temporal (máx. 15 días hábiles)", days: 15, role: "Director/a", basis: "Ley 21.809 — tope legal de 15 días hábiles para medidas de resguardo" },
-      { title: "Comunicación a la Superintendencia de Educación", days: 2, role: "Director/a / Sostenedor", basis: "Circular Superintendencia N.º 782 — deber de información" },
+      { title: "Aplicación de medida cautelar de separación temporal (duración máx. 15 días hábiles)", days: 2, role: "Director/a", basis: "Ley 21.809 — tope legal de 15 días hábiles para medidas de resguardo" },
+      { title: "Comunicación a la Superintendencia de Educación", days: 3, role: "Director/a / Sostenedor", basis: "Circular Superintendencia N.º 782 — deber de información" },
       { title: "Comisión previa a expulsión (profesor jefe + coordinador + representante técnico-pedagógico)", days: 10, role: "Comisión ad-hoc", basis: "Ley 21.809 — informe de comisión obligatorio antes de expulsar o cancelar matrícula" },
       { title: "Resolución final y notificación con derecho a apelación", days: 15, role: "Director/a", basis: "Ley 21.128 — procedimiento expedito, Ley 20.845 — debido proceso" },
     ],
