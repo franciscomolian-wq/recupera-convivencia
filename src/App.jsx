@@ -342,7 +342,7 @@ function PortalApp(props) {
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
         {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={role} />}
         {view === "formatos" && <FormatosPage />}
-        {view === "normativa" && <NormativaPage docs={props.docs} />}
+        {view === "normativa" && <NormativaPage docs={props.docs} setDocs={props.setDocs} role={role} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
         {view === "auditoria" && <AuditPanel cases={cases} />}
         {view === "perfiles" && <PerfilesPage users={props.users} cases={cases} />}
@@ -1280,31 +1280,7 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
 
   return (
     <div className="max-w-3xl">
-      <PageHead title="Plan de convivencia y PME" subtitle="Documentos institucionales (RICE, Reglamento de Evaluación, PEI, PME) y seguimiento de las acciones del plan de convivencia y del Plan de Mejoramiento Educacional." right={<Toolbar onPrint={printView} onExport={() => exportJSON({ docs, acciones }, "plan-pme.json")} />} />
-
-      <Section icon={FileText} title="Documentos institucionales">
-        <p style={{ color: C.textSoft }} className="text-xs mb-3">Estos documentos son propios de cada establecimiento y alimentan el motor normativo. Cargá el archivo o enlazá su ubicación en Drive.</p>
-        <div className="flex flex-col gap-2">
-          {docs.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg flex-wrap" style={{ background: C.paper }}>
-              <div className="min-w-[180px] flex-1">
-                <div style={{ color: C.ink }} className="text-sm">{d.name}</div>
-                <div style={{ color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px]">{d.status} · {d.updated}</div>
-              </div>
-              <div className="flex items-center gap-2 print:hidden">
-                <input value={d.url || ""} onChange={(e) => setDocField(d.id, { url: e.target.value })} placeholder="Enlace a Drive" className="rounded-md p-1.5 text-xs w-40" style={inp} />
-                {d.url && <a href={d.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir</a>}
-                {!readOnly && (
-                  <label className="text-xs px-3 py-1.5 rounded-full cursor-pointer inline-flex items-center gap-1.5 mbtn-outline" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
-                    <Upload size={13} /> Cargar
-                    <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocField(d.id, { status: "Cargado", updated: new Date().toISOString().slice(0, 7) }); e.target.value = ""; }} />
-                  </label>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
+      <PageHead title="Plan de convivencia y PME" subtitle="Seguimiento de las acciones del plan de convivencia y del Plan de Mejoramiento Educacional (PME) por dimensión. Los documentos institucionales se cargan en el Motor normativo." right={<Toolbar onPrint={printView} onExport={() => exportJSON(acciones, "plan-pme.json")} />} />
 
       <Section icon={Target} title="Seguimiento de acciones — convivencia y PME">
         <div className="grid grid-cols-3 gap-3 mb-4">
@@ -1816,7 +1792,10 @@ function FormatosPage() {
 }
 
 /* ------------------- NORMATIVA / REDES / AUDIT -------------------- */
-function NormativaPage({ docs }) {
+function NormativaPage({ docs, setDocs, role }) {
+  const readOnly = !role || role.scope !== "admin";
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const setDocField = (id, patch) => setDocs(docs.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   const feeds = {
     rice: "Alimenta el paso a paso de convivencia: faltas, medidas y plazos internos.",
     pei: "Marco de valores y sello institucional que enmarca cada decisión.",
@@ -1845,15 +1824,22 @@ function NormativaPage({ docs }) {
           <div key={d.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${C.ok}` }} className="rounded-lg p-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div style={{ color: C.ink }} className="text-sm font-medium">{d.name}</div>
-              <div className="flex items-center gap-2">
-                <span style={{ background: (d.status === "Cargado" ? C.ok : C.warn) + "22", color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{d.status} · {d.updated}</span>
-                {d.url && <a href={d.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir</a>}
-              </div>
+              <span style={{ background: (d.status === "Cargado" ? C.ok : C.warn) + "22", color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{d.status} · {d.updated}</span>
             </div>
             {feeds[d.id] && <div style={{ color: C.textSoft }} className="text-xs mt-1">{feeds[d.id]}</div>}
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap print:hidden">
+              {!readOnly && <input value={d.url || ""} onChange={(e) => setDocField(d.id, { url: e.target.value })} placeholder="Enlace a Drive" className="rounded-md p-1.5 text-xs flex-1 min-w-[160px]" style={inp} />}
+              {d.url && <a href={d.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir</a>}
+              {!readOnly && (
+                <label className="mbtn-outline text-xs px-3.5 py-1.5 rounded-full cursor-pointer inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                  <Upload size={13} /> Cargar
+                  <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocField(d.id, { status: "Cargado", updated: new Date().toISOString().slice(0, 7) }); e.target.value = ""; }} />
+                </label>
+              )}
+            </div>
           </div>
         ))}
-        <div style={{ color: C.textSoft }} className="text-[11px]">Carga o enlaza estos documentos en <b style={{ color: C.text }}>Plan de convivencia y PME</b>.</div>
+        {readOnly && <div style={{ color: C.textSoft }} className="text-[11px]">Solo el/la Coordinador/a de Convivencia puede cargar estos documentos.</div>}
       </div>
 
       {/* Capa 2 — Normativa nacional */}
@@ -1970,7 +1956,7 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
 
   return (
     <div className="max-w-2xl">
-      <PageHead title="Configuración" subtitle="Usuarios, documentos del establecimiento y correos automáticos." />
+      <PageHead title="Configuración" subtitle="Usuarios y correos automáticos. Los documentos del establecimiento se cargan en el Motor normativo." />
 
       <Section icon={UserPlus} title="Crear usuario">
         <div className="flex flex-col gap-3">
@@ -1979,21 +1965,6 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
             {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <div><Btn onClick={() => { if (name.trim()) { setUsers([...users, { id: `u${Date.now()}`, name, role, establishmentId: session.establishmentId }]); setName(""); } }}><Plus size={15} /> Agregar usuario</Btn></div>
-        </div>
-      </Section>
-
-      <Section icon={FileText} title="Documentos del establecimiento">
-        <p style={{ color: C.textSoft }} className="text-xs mb-3">Reglamento de Convivencia, PEI y Reglamento de Evaluación. Son propios de cada establecimiento y alimentan el motor junto a la normativa nacional.</p>
-        <div className="flex flex-col gap-2">
-          {docs.map((d, idx) => (
-            <div key={d.id} className="flex items-center justify-between gap-2 p-2 rounded-md" style={{ background: C.paper }}>
-              <div><div style={{ color: C.ink }} className="text-sm">{d.name}</div><div style={{ color: d.status === "Cargado" ? C.ok : C.warn }} className="text-[11px]">{d.status} · {d.updated}</div></div>
-              <label className="text-xs px-3 py-1.5 rounded-md cursor-pointer flex items-center gap-1.5 shrink-0" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.ink }}>
-                <Upload size={13} /> Cargar
-                <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocs(docs.map((x, k) => (k === idx ? { ...x, status: "Cargado", updated: new Date().toISOString().slice(0, 7) } : x))); e.target.value = ""; }} />
-              </label>
-            </div>
-          ))}
         </div>
       </Section>
 
