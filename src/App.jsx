@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Shield, Users, AlertTriangle, CheckCircle2, Clock,
   ChevronRight, Building2, UserCircle, Scale, Plus, X, Mail,
@@ -23,6 +23,7 @@ import {
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
   fmtUF, fmtCLP, billing, exportExcel,
 } from "./engine.js";
+import { api, getToken, setToken } from "./api.js";
 
 /* ---------------------------------------------------------------
    DESIGN TOKENS — se mantiene la línea actual (re-vestible con Stitch)
@@ -52,6 +53,7 @@ const initialCases = [
    ================================================================= */
 export default function App() {
   const [session, setSession] = useState(null);
+  const [booting, setBooting] = useState(true);
   const [cases, setCases] = useState(initialCases);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -66,10 +68,23 @@ export default function App() {
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [acciones, setAcciones] = useState(INITIAL_ACCIONES);
 
-  if (!session) return <Login users={users} onLogin={setSession} />;
+  // Restaura la sesión si hay un token guardado (recarga de página).
+  useEffect(() => {
+    const t = getToken();
+    if (!t) { setBooting(false); return; }
+    api.me()
+      .then(({ user }) => setSession(user))
+      .catch(() => setToken(null))
+      .finally(() => setBooting(false));
+  }, []);
+
+  const logout = () => { setToken(null); setSession(null); };
+
+  if (booting) return <Splash />;
+  if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
-    session, setSession, cases, setCases, users, setUsers,
+    session, setSession, logout, cases, setCases, users, setUsers,
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
@@ -82,9 +97,52 @@ export default function App() {
 }
 
 /* ---------------------------------------------------------------
-   LOGIN
+   SPLASH (mientras se restaura la sesión)
    ---------------------------------------------------------------- */
-function Login({ users, onLogin }) {
+function Splash() {
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex flex-col items-center justify-center gap-3">
+      <div style={{ background: C.primary }} className="w-12 h-12 rounded-full flex items-center justify-center animate-pulse">
+        <Scale size={22} color="#fff" />
+      </div>
+      <div style={{ color: C.textSoft }} className="text-sm">Cargando…</div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   LOGIN — RUT + contraseña + verificación en dos pasos (2FA)
+   ---------------------------------------------------------------- */
+function Login({ onLogin }) {
+  const [rut, setRut] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const { user, token } = await api.login(rut.trim(), password, needsCode ? code.trim() : undefined);
+      setToken(token);
+      onLogin(user);
+    } catch (err) {
+      if (err && err.twofa) {
+        setNeedsCode(true);
+        setError(err.error || "Ingresa el código de verificación.");
+      } else {
+        setError((err && (err.error || err.message)) || "No se pudo iniciar sesión.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
       <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
@@ -97,25 +155,162 @@ function Login({ users, onLogin }) {
             <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Ingreso a la plataforma</div>
           </div>
         </div>
-        <p style={{ color: C.textSoft }} className="text-sm mb-4">Selecciona un perfil para ingresar (demo):</p>
-        <div className="flex flex-col gap-2">
-          {users.map((u) => {
-            const r = ROLES[u.role];
-            return (
-              <button key={u.id} onClick={() => onLogin(u)} style={{ border: `1px solid ${C.cardBorder}`, background: C.cardBg }}
-                className="mbtn-outline flex items-center gap-3 p-3 rounded-xl text-left">
-                <div style={{ background: r.scope === "superadmin" ? C.admin : C.ink }} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0">
-                  {r.scope === "superadmin" ? <Building size={15} color="#fff" /> : <UserCircle size={15} color="#fff" />}
-                </div>
-                <div className="min-w-0">
-                  <div style={{ color: C.ink }} className="text-sm font-medium">{u.name}</div>
-                  <div style={{ color: C.textSoft }} className="text-xs">{r.label}</div>
-                </div>
-                <ChevronRight size={16} color={C.textSoft} className="ml-auto shrink-0" />
-              </button>
-            );
-          })}
+
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <label className="block">
+            <span style={{ color: C.textSoft }} className="text-xs font-medium">RUT</span>
+            <div className="relative mt-1">
+              <UserCircle size={16} color={C.textSoft} className="absolute left-3 top-1/2 -translate-y-1/2" />
+              <input value={rut} onChange={(e) => setRut(e.target.value)} placeholder="12.345.678-9" autoFocus
+                disabled={needsCode} inputMode="text"
+                className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none" style={inp} />
+            </div>
+          </label>
+
+          <label className="block">
+            <span style={{ color: C.textSoft }} className="text-xs font-medium">Contraseña</span>
+            <div className="relative mt-1">
+              <Lock size={16} color={C.textSoft} className="absolute left-3 top-1/2 -translate-y-1/2" />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+                disabled={needsCode}
+                className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none" style={inp} />
+            </div>
+          </label>
+
+          {needsCode && (
+            <label className="block">
+              <span style={{ color: C.textSoft }} className="text-xs font-medium">Código de verificación (Google Authenticator)</span>
+              <div className="relative mt-1">
+                <Shield size={16} color={C.primary} className="absolute left-3 top-1/2 -translate-y-1/2" />
+                <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000" autoFocus inputMode="numeric" maxLength={6}
+                  className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm tracking-[0.4em] outline-none" style={inp} />
+              </div>
+              <span style={{ color: C.textSoft }} className="text-[11px]">Abre tu app de autenticación e ingresa el código de 6 dígitos.</span>
+            </label>
+          )}
+
+          {error && (
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2">
+              <AlertTriangle size={14} /> {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="mbtn mt-1 inline-flex items-center justify-center gap-2 text-sm px-4 py-2.5 rounded-full font-medium"
+            style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
+            {loading ? "Ingresando…" : needsCode ? "Verificar e ingresar" : "Iniciar sesión"}
+          </button>
+
+          {needsCode && (
+            <button type="button" onClick={() => { setNeedsCode(false); setCode(""); setError(""); }}
+              style={{ color: C.textSoft }} className="text-xs underline">
+              ← Volver
+            </button>
+          )}
+        </form>
+
+        <p style={{ color: C.textSoft }} className="text-[11px] mt-5 leading-relaxed">
+          Demo — RUT <b>11.111.111-1</b> (Admin) o <b>22.222.222-2</b> (Coordinación), contraseña <b>demo1234</b>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   SEGURIDAD — activar/desactivar verificación en dos pasos (2FA)
+   ---------------------------------------------------------------- */
+function Security2FA({ session, setSession, onClose }) {
+  const enabled = !!session.totpEnabled;
+  const [step, setStep] = useState(enabled ? "on" : "off"); // off | qr | on
+  const [qr, setQr] = useState("");
+  const [secret, setSecret] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function startSetup() {
+    setError(""); setLoading(true);
+    try {
+      const { qr, secret } = await api.setup2fa();
+      setQr(qr); setSecret(secret); setStep("qr");
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo generar el código."); }
+    finally { setLoading(false); }
+  }
+
+  async function confirmEnable() {
+    setError(""); setLoading(true);
+    try {
+      await api.enable2fa(code.trim());
+      setSession({ ...session, totpEnabled: true });
+      setStep("on");
+    } catch (err) { setError((err && (err.error || err.message)) || "Código inválido."); }
+    finally { setLoading(false); }
+  }
+
+  async function disable() {
+    setError(""); setLoading(true);
+    try {
+      await api.disable2fa(password);
+      setSession({ ...session, totpEnabled: false });
+      setStep("off"); setPassword("");
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo desactivar."); }
+    finally { setLoading(false); }
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-6 w-full max-w-md shadow-lg">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center"><Shield size={17} color="#fff" /></div>
+          <div className="flex-1">
+            <div style={{ ...serif, color: C.ink }} className="text-base">Verificación en dos pasos</div>
+            <div style={{ color: C.textSoft }} className="text-xs">Google Authenticator / Authy / Microsoft Authenticator</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: C.textSoft }}><X size={16} /></button>
         </div>
+
+        {step === "on" && (
+          <div className="flex flex-col gap-3">
+            <div style={{ background: "#E6F4EA", color: C.ok }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2">
+              <CheckCircle2 size={16} /> La verificación en dos pasos está <b>activada</b>.
+            </div>
+            <div style={{ color: C.textSoft }} className="text-xs">Para desactivarla, confirma tu contraseña:</div>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña" className="w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={inp} />
+            {error && <div style={{ color: C.urgent }} className="text-xs">{error}</div>}
+            <button onClick={disable} disabled={loading || !password} className="mbtn-outline text-sm px-4 py-2.5 rounded-full font-medium" style={{ border: `1px solid ${C.urgent}`, color: C.urgent, opacity: loading || !password ? 0.5 : 1 }}>
+              {loading ? "Desactivando…" : "Desactivar 2FA"}
+            </button>
+          </div>
+        )}
+
+        {step === "off" && (
+          <div className="flex flex-col gap-3">
+            <p style={{ color: C.text }} className="text-sm">Agrega una capa extra de seguridad: además de tu RUT y contraseña, se pedirá un código de 6 dígitos de tu aplicación de autenticación.</p>
+            {error && <div style={{ color: C.urgent }} className="text-xs">{error}</div>}
+            <button onClick={startSetup} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
+              {loading ? "Generando…" : "Activar verificación en dos pasos"}
+            </button>
+          </div>
+        )}
+
+        {step === "qr" && (
+          <div className="flex flex-col gap-3">
+            <p style={{ color: C.text }} className="text-sm">1. Escanea este código QR con tu app de autenticación:</p>
+            {qr && <img src={qr} alt="QR 2FA" className="w-44 h-44 self-center rounded-lg" style={{ border: `1px solid ${C.cardBorder}` }} />}
+            <p style={{ color: C.textSoft }} className="text-[11px] text-center break-all">¿No puedes escanear? Clave manual: <b style={mono}>{secret}</b></p>
+            <p style={{ color: C.text }} className="text-sm">2. Ingresa el código de 6 dígitos que aparece:</p>
+            <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" inputMode="numeric" maxLength={6} className="w-full rounded-lg px-3 py-2.5 text-sm tracking-[0.4em] text-center outline-none" style={inp} />
+            {error && <div style={{ color: C.urgent }} className="text-xs">{error}</div>}
+            <button onClick={confirmEnable} disabled={loading || code.length < 6} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading || code.length < 6 ? 0.5 : 1 }}>
+              {loading ? "Verificando…" : "Confirmar y activar"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -307,14 +502,16 @@ function PortalApp(props) {
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
   const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sec2fa, setSec2fa] = useState(false);
   function go(v) { setView(v); setMobileOpen(false); }
   function openCase(id) { setSelectedCaseId(id); setView("caso"); setMobileOpen(false); }
   function openStudent(id) { setSelectedStudentId(id); setView("expediente"); setMobileOpen(false); }
 
   return (
     <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
+      {sec2fa && <Security2FA session={session} setSession={setSession} onClose={() => setSec2fa(false)} />}
       <Sidebar navKeys={navKeys} navMap={PORTAL_NAV} view={view} setView={go}
-        openCase={openCase} session={session} role={role} onLogout={() => setSession(null)}
+        openCase={openCase} session={session} role={role} onLogout={props.logout} onSecurity={() => setSec2fa(true)}
         mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       {mobileOpen && <div className="lg:hidden fixed inset-0 bg-black/40 z-30" onClick={() => setMobileOpen(false)} />}
       <div className="flex-1 min-w-0 flex flex-col">
@@ -353,7 +550,7 @@ function PortalApp(props) {
   );
 }
 
-function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout, mobileOpen, setMobileOpen }) {
+function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLogout, onSecurity, mobileOpen, setMobileOpen }) {
   const activeFor = (key) =>
     view === key ||
     (key === "casos" && view === "caso") ||
@@ -414,6 +611,9 @@ function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLo
             <div style={{ color: C.ink }} className="text-sm font-medium truncate">{session.name}</div>
             <div style={{ color: C.sidebarTextSoft }} className="text-[11px] truncate">{role.label}</div>
           </div>
+          {onSecurity && (
+            <button onClick={onSecurity} title="Seguridad (verificación en dos pasos)" className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 hover:bg-black/5" style={{ color: session.totpEnabled ? C.ok : C.sidebarTextSoft }}><Shield size={16} /></button>
+          )}
           <button onClick={onLogout} title="Cerrar sesión" className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 hover:bg-black/5" style={{ color: C.sidebarTextSoft }}><LogOut size={16} /></button>
         </div>
       </div>
@@ -2011,8 +2211,10 @@ const ADMIN_NAV = {
 function AdminApp(props) {
   const { session, setSession } = props;
   const [view, setView] = useState("dashboard");
+  const [sec2fa, setSec2fa] = useState(false);
   return (
     <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
+      {sec2fa && <Security2FA session={session} setSession={setSession} onClose={() => setSec2fa(false)} />}
       <aside style={{ background: C.adminSoft, borderRight: `1px solid ${C.cardBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
         <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
           <div style={{ background: C.admin }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Building size={17} color="#fff" /></div>
@@ -2027,7 +2229,8 @@ function AdminApp(props) {
         </nav>
         <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${C.cardBorder}` }}>
           <div className="px-2 pt-3 pb-2"><div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-widest">Sesión</div><div style={{ color: C.admin }} className="text-sm font-medium">{session.name}</div></div>
-          <button onClick={() => setSession(null)} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: C.text }}><LogOut size={16} /> Cerrar sesión</button>
+          <button onClick={() => setSec2fa(true)} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: session.totpEnabled ? C.ok : C.text }}><Shield size={16} /> Seguridad (2FA){session.totpEnabled ? " ✓" : ""}</button>
+          <button onClick={props.logout} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: C.text }}><LogOut size={16} /> Cerrar sesión</button>
         </div>
       </aside>
       <main className="flex-1 p-6 sm:p-10 min-w-0">
