@@ -67,4 +67,18 @@ export const api = {
   addCompromiso: (id, texto) => request(`/api/students/${id}/compromisos`, { method: "POST", body: { texto }, auth: true }),
   setCompromiso: (cid, cumplido) => request(`/api/students/compromisos/${cid}`, { method: "PATCH", body: { cumplido }, auth: true }),
   addMedida: (id, m) => request(`/api/students/${id}/medidas`, { method: "POST", body: m, auth: true }),
+  deleteStudent: (id) => request(`/api/students/${id}`, { method: "DELETE", auth: true }),
+  deleteCase: (id) => request(`/api/cases/${id}`, { method: "DELETE", auth: true }),
+  deleteUser: (id) => request(`/api/users/${id}`, { method: "DELETE", auth: true }),
+
+  // --- Registros genéricos del expediente (inspectoría, PIE, apoderados) ---
+  addStudentRecord: (sid, kind, data) => request(`/api/students/${sid}/records`, { method: "POST", body: { kind, data }, auth: true }),
+  updateStudentRecord: (rid, data) => request(`/api/students/records/${rid}`, { method: "PATCH", body: { data }, auth: true }),
+  deleteStudentRecord: (rid) => request(`/api/students/records/${rid}`, { method: "DELETE", auth: true }),
+
+  // --- Registros a nivel establecimiento (mensajes, agenda, gestiones, documental, PME) ---
+  listOrgRecords: () => request("/api/org/records", { auth: true }),
+  addOrgRecord: (kind, data, global) => request("/api/org/records", { method: "POST", body: { kind, data, global }, auth: true }),
+  updateOrgRecord: (id, data) => request(`/api/org/records/${id}`, { method: "PATCH", body: { data }, auth: true }),
+  deleteOrgRecord: (id) => request(`/api/org/records/${id}`, { method: "DELETE", auth: true }),
 };

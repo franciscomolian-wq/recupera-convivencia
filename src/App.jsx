@@ -73,20 +73,68 @@ function apiCaseToUI(ac) {
   };
 }
 
+/* kind (BD) → nombre del arreglo en la UI (inspectoría, PIE, apoderados). */
+const REC_KIND_TO_ARR = {
+  anotacion: "anotaciones", suspension: "suspensiones", atraso: "atrasos", retiro: "retiros",
+  pieInforme: "pieInformes", pieAdecuacion: "pieAdecuaciones", pieEstrategia: "pieEstrategias", pieReunion: "pieReuniones",
+  citacionApo: "citacionesApo", acuerdoApo: "acuerdosApo", docApo: "docsApo",
+};
+const REC_ARR_TO_KIND = Object.fromEntries(Object.entries(REC_KIND_TO_ARR).map(([k, v]) => [v, k]));
+
 function apiStudentToUI(as) {
-  return {
+  const s = {
     id: as.id,
     name: as.name, curso: as.curso || "", nivel: as.nivel || "",
     apoderadoNombre: as.apoderadoNombre || "", apoderadoEmail: as.apoderadoEmail || "",
+    nee: !!as.nee, neeTipo: as.neeTipo || "",
     entrevistas: as.entrevistas || [],
     citaciones: as.citaciones || [],
     compromisos: as.compromisos || [],
     medidas: as.medidas || [],
-    // Módulos aún sin backend propio: se conservan vacíos para no romper la UI.
     anotaciones: [], suspensiones: [], atrasos: [], retiros: [],
-    nee: [], pieInformes: [], adecuaciones: [], estrategias: [], reunionesPie: [],
+    pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [],
     citacionesApo: [], acuerdosApo: [], docsApo: [],
   };
+  // Desempaqueta los registros genéricos en sus arreglos: {id, ...data}
+  for (const r of as.records || []) {
+    const arr = REC_KIND_TO_ARR[r.kind];
+    if (arr) s[arr].push({ id: r.id, ...(r.data || {}) });
+  }
+  return s;
+}
+
+/* Helpers para registros de expediente (inspectoría/PIE/apoderados) contra la API. */
+async function addStudentRec(setStudents, sid, arrName, data) {
+  try {
+    const r = await api.addStudentRecord(sid, REC_ARR_TO_KIND[arrName], data);
+    const item = { id: r.id, ...(r.data || {}) };
+    setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: [...(x[arrName] || []), item] } : x)));
+  } catch (e) { console.error("addStudentRec", arrName, e); }
+}
+function updStudentRec(setStudents, sid, arrName, id, patch) {
+  setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).map((it) => (it.id === id ? { ...it, ...patch } : it)) } : x)));
+  api.updateStudentRecord(id, patch).catch((e) => console.error("updStudentRec", e));
+}
+function delStudentRec(setStudents, sid, arrName, id) {
+  setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).filter((it) => it.id !== id) } : x)));
+  api.deleteStudentRecord(id).catch((e) => console.error("delStudentRec", e));
+}
+
+/* Helpers para registros a nivel establecimiento (agenda/mensajes/gestiones/documental/PME). */
+function orgAdd(setter, kind, data, { prepend = true, global = false } = {}) {
+  return api.addOrgRecord(kind, data, global).then((r) => {
+    const item = { id: r.id, ...(r.data || {}) };
+    setter((prev) => (prepend ? [item, ...prev] : [...prev, item]));
+    return item;
+  }).catch((e) => console.error("orgAdd", kind, e));
+}
+function orgUpdate(setter, id, patch) {
+  setter((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  api.updateOrgRecord(id, patch).catch((e) => console.error("orgUpdate", e));
+}
+function orgDelete(setter, id) {
+  setter((prev) => prev.filter((it) => it.id !== id));
+  api.deleteOrgRecord(id).catch((e) => console.error("orgDelete", e));
 }
 
 /* =================================================================
@@ -106,11 +154,11 @@ export default function App() {
   const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
   const [docs, setDocs] = useState(DEFAULT_ESTABLISHMENT_DOCS);
   const [students, setStudents] = useState([]);
-  const [messages, setMessages] = useState(INITIAL_MESSAGES);
-  const [events, setEvents] = useState(INITIAL_EVENTS);
-  const [gestiones, setGestiones] = useState(INITIAL_GESTIONES);
-  const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
-  const [acciones, setAcciones] = useState(INITIAL_ACCIONES);
+  const [messages, setMessages] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [gestiones, setGestiones] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [acciones, setAcciones] = useState([]);
 
   // Restaura la sesión si hay un token guardado (recarga de página).
   useEffect(() => {
@@ -127,18 +175,24 @@ export default function App() {
     if (!session) return;
     let vivo = true;
     setDataLoading(true);
-    Promise.all([api.listCases(), api.listStudents()])
-      .then(([cs, ss]) => {
+    Promise.all([api.listCases(), api.listStudents(), api.listOrgRecords()])
+      .then(([cs, ss, org]) => {
         if (!vivo) return;
         setCases(cs.map(apiCaseToUI));
         setStudents(ss.map(apiStudentToUI));
+        const by = (k) => org.filter((r) => r.kind === k).map((r) => ({ id: r.id, ...(r.data || {}) }));
+        setMessages(by("message"));
+        setEvents(by("event"));
+        setGestiones(by("gestion"));
+        setDocuments(by("document"));
+        setAcciones(by("accion"));
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -1096,8 +1150,7 @@ function InspectoriaPage({ students, setStudents, role }) {
   const totAtrasos = sum("atrasos", (arr) => arr.reduce((b, t) => b + (Number(t.cantidad) || 1), 0));
   const totRetiros = sum("retiros", (arr) => arr.length);
 
-  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
-  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  function add(kind, record) { addStudentRec(setStudents, sid, kind, record); }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const chip = (bg, color, txt) => <span style={{ background: bg, color }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{txt}</span>;
   const anotColor = { positiva: C.ok, negativa: C.urgent, neutra: C.textSoft };
@@ -1202,7 +1255,7 @@ function AgendaPage({ events, setEvents, cases, role }) {
   const all = [...events, ...derived].sort((a, b) => (a.fecha + (a.hora || "")).localeCompare(b.fecha + (b.hora || "")));
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
-  function add() { if (ev.title.trim() && ev.fecha) { setEvents([...events, { id: "ev" + Date.now(), ...ev }]); setEv({ tipo: "Entrevista", title: "", fecha: "", hora: "", notas: "", recordar: 1 }); } }
+  function add() { if (ev.title.trim() && ev.fecha) { orgAdd(setEvents, "event", ev, { prepend: false }); setEv({ tipo: "Entrevista", title: "", fecha: "", hora: "", notas: "", recordar: 1 }); } }
 
   return (
     <div className="max-w-3xl">
@@ -1240,7 +1293,7 @@ function AgendaPage({ events, setEvents, cases, role }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span style={{ color }} className="text-xs font-medium whitespace-nowrap">{dl < 0 ? `hace ${-dl}d` : dl === 0 ? "hoy" : `en ${dl}d`}</span>
-                {!readOnly && !e.derived && <button onClick={() => setEvents(events.filter((x) => x.id !== e.id))} style={{ color: C.textSoft }} className="print:hidden"><Trash2 size={14} /></button>}
+                {!readOnly && !e.derived && <button onClick={() => orgDelete(setEvents, e.id)} style={{ color: C.textSoft }} className="print:hidden"><Trash2 size={14} /></button>}
               </div>
             </div>
           );
@@ -1262,7 +1315,7 @@ function MessagesPage({ messages, setMessages, session, role }) {
 
   function send() {
     if (!subject.trim()) return;
-    setMessages([{ id: "m" + Date.now(), from: session.name, fromRole: role.label, to, subject, body, at: new Date().toISOString().slice(0, 10), read: false }, ...messages]);
+    orgAdd(setMessages, "message", { from: session.name, fromRole: role.label, to, subject, body, at: new Date().toISOString().slice(0, 10), read: false });
     setSubject(""); setBody(""); setSent(true); setTimeout(() => setSent(false), 2500);
   }
 
@@ -1321,8 +1374,12 @@ function PIEPage({ students, setStudents, cases, role }) {
   const totAde = students.reduce((a, x) => a + (x.pieAdecuaciones || []).length, 0);
   const totReu = students.reduce((a, x) => a + (x.pieReuniones || []).length, 0);
 
-  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
-  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
+  function add(kind, record) { addStudentRec(setStudents, sid, kind, record); }
+  function toggleNee() {
+    const next = !s.nee;
+    setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, nee: next } : x)));
+    api.updateStudent(sid, { nee: next }).catch((e) => console.error("nee", e));
+  }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const scases = cases.filter((c) => c.studentId === sid);
 
@@ -1342,7 +1399,7 @@ function PIEPage({ students, setStudents, cases, role }) {
             {students.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.curso}{x.nee ? " · NEE" : ""}</option>)}
           </select>
         </div>
-        {s && !readOnly && <label className="flex items-center gap-2 text-sm mt-5" style={{ color: C.ink }}><input type="checkbox" checked={!!s.nee} onChange={() => update((x) => ({ ...x, nee: !x.nee }))} /> Tiene NEE</label>}
+        {s && !readOnly && <label className="flex items-center gap-2 text-sm mt-5" style={{ color: C.ink }}><input type="checkbox" checked={!!s.nee} onChange={toggleNee} /> Tiene NEE</label>}
       </div>
       {s && (
         <>
@@ -1388,7 +1445,7 @@ function GestionRedesPage({ gestiones, setGestiones, institutions, cases, role }
   const nPend = gestiones.filter((x) => x.estado === "Pendiente").length;
   const nJud = gestiones.filter((x) => x.tipo === "Medida judicial").length;
 
-  function add() { if (g.detalle.trim()) { setGestiones([{ id: "g" + Date.now(), ...g }, ...gestiones]); setG({ tipo: "Oficio enviado", institucion: institutions[0]?.label || "", caso: "", fecha: "", detalle: "", estado: "Pendiente" }); } }
+  function add() { if (g.detalle.trim()) { orgAdd(setGestiones, "gestion", g); setG({ tipo: "Oficio enviado", institucion: institutions[0]?.label || "", caso: "", fecha: "", detalle: "", estado: "Pendiente" }); } }
 
   return (
     <div className="max-w-4xl">
@@ -1497,9 +1554,8 @@ function ApoderadosPage({ students, setStudents, role }) {
   const [cita, setCita] = useState({ fecha: "", hora: "", motivo: "" });
   const [acu, setAcu] = useState({ fecha: "", acuerdo: "" });
   const [doc, setDoc] = useState("");
-  function update(fn) { setStudents((prev) => prev.map((x) => (x.id === sid ? fn(x) : x))); }
-  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
-  function updItem(kind, id, patch) { update((x) => ({ ...x, [kind]: (x[kind] || []).map((it) => (it.id === id ? { ...it, ...patch } : it)) })); }
+  function add(kind, record) { addStudentRec(setStudents, sid, kind, record); }
+  function updItem(kind, id, patch) { updStudentRec(setStudents, sid, kind, id, patch); }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const citColor = { Pendiente: C.warn, Confirmada: C.ok, Reagendar: C.admin };
   const firmar = (kind, id) => updItem(kind, id, { firma: { por: s.apoderadoNombre, at: new Date().toISOString().slice(0, 10) } });
@@ -1594,7 +1650,7 @@ function DocumentalPage({ documents, setDocuments, cases, role }) {
   const [q, setQ] = useState("");
   const rows = documents.filter((x) => (!fcat || x.categoria === fcat) && (!q || x.nombre.toLowerCase().includes(q.toLowerCase())));
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
-  function add() { if (d.nombre.trim()) { setDocuments([{ id: "d" + Date.now(), ...d }, ...documents]); setD({ nombre: "", categoria: "Informe", caso: "", fecha: "", url: "" }); } }
+  function add() { if (d.nombre.trim()) { orgAdd(setDocuments, "document", d); setD({ nombre: "", categoria: "Informe", caso: "", fecha: "", url: "" }); } }
 
   return (
     <div className="max-w-4xl">
@@ -1635,7 +1691,7 @@ function DocumentalPage({ documents, setDocuments, cases, role }) {
                 <td style={{ color: C.textSoft }} className="p-3 text-xs">{x.fecha || "—"}</td>
                 <td className="p-3 print:hidden">
                   {x.url ? <a href={x.url} target="_blank" rel="noreferrer" style={{ color: C.primary }} className="text-xs inline-flex items-center gap-1"><ExternalLink size={12} /> Abrir en Drive</a> : <span style={{ color: C.textSoft }} className="text-xs">—</span>}
-                  {!readOnly && <button onClick={() => setDocuments(documents.filter((y) => y.id !== x.id))} style={{ color: C.textSoft }} className="ml-3"><Trash2 size={13} /></button>}
+                  {!readOnly && <button onClick={() => orgDelete(setDocuments, x.id)} style={{ color: C.textSoft }} className="ml-3"><Trash2 size={13} /></button>}
                 </td>
               </tr>
             ))}
@@ -1656,8 +1712,8 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
   const avgAvance = acciones.length ? Math.round(acciones.reduce((s, x) => s + (Number(x.avance) || 0), 0) / acciones.length) : 0;
   const completas = acciones.filter((x) => Number(x.avance) >= 100).length;
   function setDocField(id, patch) { setDocs(docs.map((d) => (d.id === id ? { ...d, ...patch } : d))); }
-  function updAccion(id, patch) { setAcciones(acciones.map((x) => (x.id === id ? { ...x, ...patch } : x))); }
-  function addAccion() { if (a.nombre.trim()) { setAcciones([{ id: "ac" + Date.now(), ...a }, ...acciones]); setA({ nombre: "", dimension: "Convivencia Escolar", objetivo: "", responsable: "", inicio: "", termino: "", avance: 0 }); } }
+  function updAccion(id, patch) { orgUpdate(setAcciones, id, patch); }
+  function addAccion() { if (a.nombre.trim()) { orgAdd(setAcciones, "accion", a); setA({ nombre: "", dimension: "Convivencia Escolar", objetivo: "", responsable: "", inicio: "", termino: "", avance: 0 }); } }
   const dimColor = (d) => (d === "Convivencia Escolar" ? C.ok : d === "Liderazgo Escolar" ? C.primary : d === "Gestión Pedagógica" ? C.warn : C.seal);
   const barColor = (v) => (v >= 100 ? C.ok : v >= 50 ? C.primary : C.warn);
 
@@ -1690,7 +1746,7 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
               {!readOnly && (
                 <div className="flex items-center gap-2 mt-2 print:hidden">
                   <input type="range" min="0" max="100" step="5" value={x.avance} onChange={(e) => updAccion(x.id, { avance: Number(e.target.value) })} className="flex-1" />
-                  <button onClick={() => setAcciones(acciones.filter((y) => y.id !== x.id))} style={{ color: C.textSoft }}><Trash2 size={14} /></button>
+                  <button onClick={() => orgDelete(setAcciones, x.id)} style={{ color: C.textSoft }}><Trash2 size={14} /></button>
                 </div>
               )}
             </div>
@@ -2357,6 +2413,13 @@ function PerfilesPage({ roleKey }) {
     try { const res = await api.reinviteUser(u.id); setInvite({ url: res.inviteUrl, name: u.name }); setCopied(false); } catch (err) { setError((err && (err.error || err.message)) || "No se pudo regenerar."); }
   }
 
+  async function borrar(u) {
+    if (!window.confirm(`¿Eliminar la cuenta de ${u.name}? Esta acción no se puede deshacer.`)) return;
+    setError("");
+    try { await api.deleteUser(u.id); setUsers((prev) => prev.filter((x) => x.id !== u.id)); }
+    catch (err) { setError((err && (err.error || err.message)) || "No se pudo eliminar."); }
+  }
+
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
   if (!canManage) {
@@ -2406,7 +2469,10 @@ function PerfilesPage({ roleKey }) {
                     {u.activated ? (u.totpEnabled ? "Activa · 2FA on" : "Activa") : "Invitación pendiente"}
                   </div>
                 </div>
-                {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline shrink-0">Reenviar</button>}
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline">Reenviar</button>}
+                  <button onClick={() => borrar(u)} title="Eliminar usuario" style={{ color: C.textSoft }}><Trash2 size={14} /></button>
+                </div>
               </div>
             );
           })}
