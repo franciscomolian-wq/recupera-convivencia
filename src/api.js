@@ -42,4 +42,22 @@ export const api = {
   setup2fa: () => request("/api/auth/2fa/setup", { method: "POST", auth: true }),
   enable2fa: (token) => request("/api/auth/2fa/enable", { method: "POST", body: { token }, auth: true }),
   disable2fa: (password) => request("/api/auth/2fa/disable", { method: "POST", body: { password }, auth: true }),
+
+  // --- Casos ---
+  listCases: () => request("/api/cases", { auth: true }),
+  createCase: (payload) => request("/api/cases", { method: "POST", body: payload, auth: true }),
+  closeCase: (id, summary) => request(`/api/cases/${id}/close`, { method: "POST", body: { summary }, auth: true }),
+  stepDone: (id, order) => request(`/api/cases/${id}/steps/${order}/done`, { method: "POST", auth: true }),
+  addEvidence: (id, ev) => request(`/api/cases/${id}/evidence`, { method: "POST", body: ev, auth: true }),
+
+  // --- Expedientes (estudiantes) ---
+  listStudents: () => request("/api/students", { auth: true }),
+  getStudent: (id) => request(`/api/students/${id}`, { auth: true }),
+  createStudent: (s) => request("/api/students", { method: "POST", body: s, auth: true }),
+  updateStudent: (id, s) => request(`/api/students/${id}`, { method: "PATCH", body: s, auth: true }),
+  addEntrevista: (id, e) => request(`/api/students/${id}/entrevistas`, { method: "POST", body: e, auth: true }),
+  addCitacion: (id, c) => request(`/api/students/${id}/citaciones`, { method: "POST", body: c, auth: true }),
+  addCompromiso: (id, texto) => request(`/api/students/${id}/compromisos`, { method: "POST", body: { texto }, auth: true }),
+  setCompromiso: (cid, cumplido) => request(`/api/students/compromisos/${cid}`, { method: "PATCH", body: { cumplido }, auth: true }),
+  addMedida: (id, m) => request(`/api/students/${id}/medidas`, { method: "POST", body: m, auth: true }),
 };

@@ -41,12 +41,53 @@ const C = {
 const serif = { fontFamily: "'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif", fontWeight: 500 };
 const mono = { fontFamily: "'Roboto Mono', ui-monospace, monospace" };
 
-/* --------------------------- SEED --------------------------------- */
-const initialCases = [
-  buildCase("RC-2026-014", "bullying", "Estudiante 7°B (iniciales J.M.)", 40, 4, "apoderado.jm@correo.cl", { studentId: "s1", curso: "7°B" }),
-  buildCase("RC-2026-021", "agresionGrave", "Estudiante 2°M (iniciales F.T.)", 12, 2, "apoderado.ft@correo.cl", { studentId: "s2", curso: "2°M" }),
-  buildCase("RC-2026-009", "discriminacion", "Estudiante 4°B (iniciales C.R.)", 58, 5, "apoderado.cr@correo.cl", { studentId: "s3", curso: "4°B" }),
-];
+/* ------------------- ADAPTADORES API ↔ UI -------------------------
+   La UI trabaja con un objeto de caso "rico" (con type/steps/fechas).
+   Estos adaptadores traducen desde/hacia la forma que guarda la API.
+   ------------------------------------------------------------------ */
+function apiCaseToUI(ac) {
+  const type = CASE_TYPES[ac.typeKey] || { label: ac.typeKey, steps: [], network: [] };
+  const steps = (ac.steps || []).map((s) => ({
+    id: s.order, title: s.title, role: s.role, basis: s.basis, days: 0,
+    due: s.due ? new Date(s.due) : new Date(ac.createdAt),
+    done: !!s.done,
+    evidence: (ac.evidence || []).filter((e) => e.stepOrder === s.order),
+  }));
+  return {
+    _dbId: ac.id,
+    id: ac.code,
+    typeKey: ac.typeKey, type,
+    studentLabel: ac.studentLabel, level: ac.level || "",
+    relato: ac.relato || "", curso: ac.curso || "",
+    fechaHecho: ac.fechaHecho || "", hora: ac.hora || "", lugar: ac.lugar || "",
+    testigos: ac.testigos || "", adultosRef: ac.adultosRef || "",
+    start: new Date(ac.createdAt),
+    steps, currentStepIdx: ac.currentStepIdx || 0,
+    apoderadoEmail: ac.student?.apoderadoEmail || "",
+    notifiedApoderado: (ac.currentStepIdx || 0) > 0,
+    derivations: ac.derivations || [],
+    autoEmails: !!ac.autoEmails,
+    closed: !!ac.closed, closedAt: ac.closedAt, closeSummary: ac.closeSummary || "",
+    studentId: ac.studentId || null,
+    log: [],
+  };
+}
+
+function apiStudentToUI(as) {
+  return {
+    id: as.id,
+    name: as.name, curso: as.curso || "", nivel: as.nivel || "",
+    apoderadoNombre: as.apoderadoNombre || "", apoderadoEmail: as.apoderadoEmail || "",
+    entrevistas: as.entrevistas || [],
+    citaciones: as.citaciones || [],
+    compromisos: as.compromisos || [],
+    medidas: as.medidas || [],
+    // Módulos aún sin backend propio: se conservan vacíos para no romper la UI.
+    anotaciones: [], suspensiones: [], atrasos: [], retiros: [],
+    nee: [], pieInformes: [], adecuaciones: [], estrategias: [], reunionesPie: [],
+    citacionesApo: [], acuerdosApo: [], docsApo: [],
+  };
+}
 
 /* =================================================================
    RAÍZ — login + enrutado por rol
@@ -54,14 +95,15 @@ const initialCases = [
 export default function App() {
   const [session, setSession] = useState(null);
   const [booting, setBooting] = useState(true);
-  const [cases, setCases] = useState(initialCases);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
   const [establishments, setEstablishments] = useState(ESTABLISHMENTS);
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const [emailTemplates, setEmailTemplates] = useState(DEFAULT_EMAIL_TEMPLATES);
   const [docs, setDocs] = useState(DEFAULT_ESTABLISHMENT_DOCS);
-  const [students, setStudents] = useState(STUDENTS);
+  const [students, setStudents] = useState([]);
   const [messages, setMessages] = useState(INITIAL_MESSAGES);
   const [events, setEvents] = useState(INITIAL_EVENTS);
   const [gestiones, setGestiones] = useState(INITIAL_GESTIONES);
@@ -78,13 +120,29 @@ export default function App() {
       .finally(() => setBooting(false));
   }, []);
 
-  const logout = () => { setToken(null); setSession(null); };
+  // Carga casos y expedientes reales desde la API cuando hay sesión.
+  useEffect(() => {
+    if (!session) return;
+    let vivo = true;
+    setDataLoading(true);
+    Promise.all([api.listCases(), api.listStudents()])
+      .then(([cs, ss]) => {
+        if (!vivo) return;
+        setCases(cs.map(apiCaseToUI));
+        setStudents(ss.map(apiStudentToUI));
+      })
+      .catch(() => {})
+      .finally(() => vivo && setDataLoading(false));
+    return () => { vivo = false; };
+  }, [session?.id]);
+
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); };
 
   if (booting) return <Splash />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
-    session, setSession, logout, cases, setCases, users, setUsers,
+    session, setSession, logout, dataLoading, cases, setCases, users, setUsers,
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
@@ -512,6 +570,27 @@ function PortalApp(props) {
   function openCase(id) { setSelectedCaseId(id); setView("caso"); setMobileOpen(false); }
   function openStudent(id) { setSelectedStudentId(id); setView("expediente"); setMobileOpen(false); }
 
+  // Crea el caso (y el estudiante si es nuevo) en la base de datos.
+  async function persistCase(built) {
+    let sid = built.studentId;
+    if (!sid) {
+      const ns = await api.createStudent({ name: built.studentLabel, curso: built.curso || null, nivel: built.level || null });
+      setStudents((prev) => [...prev, apiStudentToUI(ns)]);
+      sid = ns.id;
+    }
+    const created = await api.createCase({
+      code: built.id, typeKey: built.typeKey, studentLabel: built.studentLabel,
+      level: built.level, relato: built.relato, curso: built.curso,
+      fechaHecho: built.fechaHecho, hora: built.hora, lugar: built.lugar,
+      testigos: built.testigos, adultosRef: built.adultosRef, studentId: sid,
+      steps: built.steps.map((s) => ({ title: s.title, role: s.role, basis: s.basis, due: s.due })),
+    });
+    const mapped = apiCaseToUI(created);
+    setCases((prev) => [mapped, ...prev]);
+    setSelectedCaseId(mapped.id);
+    setView("caso");
+  }
+
   return (
     <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
       {sec2fa && <Security2FA session={session} setSession={setSession} onClose={() => setSec2fa(false)} />}
@@ -528,7 +607,7 @@ function PortalApp(props) {
       <main className="flex-1 p-6 sm:p-10 min-w-0">
         <div className="hidden lg:flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
         {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
-        {view === "nuevo" && <CaseWizard students={students} setStudents={setStudents} onCreate={(c) => { setCases([c, ...cases]); setSelectedCaseId(c.id); setView("caso"); }} onCancel={() => setView("dashboard")} />}
+        {view === "nuevo" && <CaseWizard students={students} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
@@ -770,8 +849,23 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
   const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "" });
 
   function update(fn) { setStudents((prev) => prev.map((x) => (x.id === s.id ? fn(x) : x))); }
-  function add(kind, record) { update((x) => ({ ...x, [kind]: [...(x[kind] || []), { id: `${kind}${Date.now()}`, ...record }] })); }
-  function toggleCompromiso(cid) { update((x) => ({ ...x, compromisos: x.compromisos.map((k) => (k.id === cid ? { ...k, cumplido: !k.cumplido } : k)) })); }
+  async function add(kind, record) {
+    try {
+      let created;
+      if (kind === "entrevistas") created = await api.addEntrevista(s.id, record);
+      else if (kind === "citaciones") created = await api.addCitacion(s.id, record);
+      else if (kind === "compromisos") created = await api.addCompromiso(s.id, record.texto);
+      else if (kind === "medidas") created = await api.addMedida(s.id, record);
+      else created = { id: `${kind}${Date.now()}`, ...record };
+      update((x) => ({ ...x, [kind]: [...(x[kind] || []), created] }));
+    } catch (e) { console.error("add", kind, e); }
+  }
+  function toggleCompromiso(cid) {
+    const cur = (s.compromisos || []).find((k) => k.id === cid);
+    const next = !(cur && cur.cumplido);
+    update((x) => ({ ...x, compromisos: x.compromisos.map((k) => (k.id === cid ? { ...k, cumplido: next } : k)) }));
+    api.setCompromiso(cid, next).catch((e) => console.error("setCompromiso", e));
+  }
 
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const chip = (bg, color, txt) => <span style={{ background: bg, color }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{txt}</span>;
@@ -1538,7 +1632,7 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
 }
 
 /* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
-function CaseWizard({ students, setStudents, onCreate, onCancel }) {
+function CaseWizard({ students, onCreate, onCancel }) {
   const [mode, setMode] = useState("predef");
   const [studentId, setStudentId] = useState("");
   const [typeKey, setTypeKey] = useState("");
@@ -1547,18 +1641,23 @@ function CaseWizard({ students, setStudents, onCreate, onCancel }) {
   const [relato, setRelato] = useState("");
   const [analysis, setAnalysis] = useState(null);
   const [f, setF] = useState({ fechaHecho: "", hora: "", lugar: "", curso: "", testigos: "", adultosRef: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const chosenKey = mode === "predef" ? typeKey : analysis?.best?.key;
   const setField = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
 
-  function create() {
-    if (!chosenKey) return;
-    const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
-    let sid = studentId;
-    if (!sid) {
-      sid = `s${Date.now()}`;
-      setStudents((prev) => [...prev, { id: sid, name: involved || "Estudiante sin identificar", curso: f.curso || "", nivel: level, entrevistas: [], citaciones: [], compromisos: [], medidas: [] }]);
+  async function create() {
+    if (!chosenKey || saving) return;
+    setError(""); setSaving(true);
+    try {
+      const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
+      const built = buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: studentId || null });
+      await onCreate(built);
+    } catch (err) {
+      setError((err && (err.error || err.message)) || "No se pudo guardar el caso.");
+    } finally {
+      setSaving(false);
     }
-    onCreate(buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: sid }));
   }
 
   return (
@@ -1638,9 +1737,14 @@ function CaseWizard({ students, setStudents, onCreate, onCancel }) {
             <span style={{ color: C.textSoft }}>Redes sugeridas: {CASE_TYPES[chosenKey].network.map((id) => INSTITUTIONS.find((i) => i.id === id)?.label).join(" · ")}</span>
           </div>
         )}
+        {error && (
+          <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2">
+            <AlertTriangle size={14} /> {error}
+          </div>
+        )}
         <div className="flex gap-3 justify-end pt-1">
           <button onClick={onCancel} className="text-sm px-4 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button>
-          <Btn onClick={create} disabled={!chosenKey}>Generar paso a paso <ChevronRight size={15} /></Btn>
+          <Btn onClick={create} disabled={!chosenKey || saving}>{saving ? "Guardando…" : <>Generar paso a paso <ChevronRight size={15} /></>}</Btn>
         </div>
       </div>
     </div>
@@ -1661,15 +1765,18 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
   function closeCase(summary) {
     update((x) => ({ ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }));
     setCloseOpen(false);
+    if (c._dbId) api.closeCase(c._dbId, summary).catch((e) => console.error("closeCase", e));
   }
   function markDone(stepId) {
     update((x) => ({ ...x, currentStepIdx: Math.max(x.currentStepIdx, stepId + 1),
       steps: x.steps.map((s) => (s.id === stepId ? { ...s, done: true } : s)),
       log: [...x.log, { at: new Date(), who: role.label, text: `Paso completado: ${x.steps[stepId].title}` }] }));
+    if (c._dbId) api.stepDone(c._dbId, stepId).catch((e) => console.error("stepDone", e));
   }
   function addEvidence(stepId, name, type) {
     update((x) => ({ ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { name, type }] } : s)),
       log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }));
+    if (c._dbId) api.addEvidence(c._dbId, { type, name, stepOrder: stepId }).catch((e) => console.error("addEvidence", e));
   }
 
   return (
