@@ -210,8 +210,13 @@ function Login({ onLogin }) {
           )}
         </form>
 
+        {/^(localhost|127\.|0\.0\.0\.0)/.test(typeof window !== "undefined" ? window.location.hostname : "") && (
+          <p style={{ color: C.textSoft }} className="text-[11px] mt-5 leading-relaxed">
+            Demo (solo local) — RUT <b>11.111.111-1</b> (Admin) o <b>22.222.222-2</b> (Coordinación), contraseña <b>demo1234</b>.
+          </p>
+        )}
         <p style={{ color: C.textSoft }} className="text-[11px] mt-5 leading-relaxed">
-          Demo — RUT <b>11.111.111-1</b> (Admin) o <b>22.222.222-2</b> (Coordinación), contraseña <b>demo1234</b>.
+          El acceso es exclusivo para personal autorizado del establecimiento.
         </p>
       </div>
     </div>
