@@ -43,6 +43,13 @@ export const api = {
   enable2fa: (token) => request("/api/auth/2fa/enable", { method: "POST", body: { token }, auth: true }),
   disable2fa: (password) => request("/api/auth/2fa/disable", { method: "POST", body: { password }, auth: true }),
 
+  // --- Invitación / activación de cuentas ---
+  inviteInfo: (token) => request(`/api/auth/invite/${token}`),
+  activate: (token, password) => request("/api/auth/activate", { method: "POST", body: { token, password } }),
+  listUsers: () => request("/api/users", { auth: true }),
+  inviteUser: (payload) => request("/api/users/invite", { method: "POST", body: payload, auth: true }),
+  reinviteUser: (id) => request(`/api/users/${id}/reinvite`, { method: "POST", auth: true }),
+
   // --- Casos ---
   listCases: () => request("/api/cases", { auth: true }),
   createCase: (payload) => request("/api/cases", { method: "POST", body: payload, auth: true }),

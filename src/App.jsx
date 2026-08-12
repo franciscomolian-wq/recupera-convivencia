@@ -96,6 +96,8 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [booting, setBooting] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
+  const [inviteToken, setInviteToken] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null);
   const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -139,6 +141,8 @@ export default function App() {
   const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); };
 
   if (booting) return <Splash />;
+  if (!session && inviteToken)
+    return <Activate token={inviteToken} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); }} />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
@@ -276,6 +280,86 @@ function Login({ onLogin }) {
         <p style={{ color: C.textSoft }} className="text-[11px] mt-5 leading-relaxed">
           El acceso es exclusivo para personal autorizado del establecimiento.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   ACTIVAR CUENTA — desde el enlace de invitación (define contraseña)
+   ---------------------------------------------------------------- */
+function Activate({ token, onDone, onCancel }) {
+  const [info, setInfo] = useState(null);
+  const [invalid, setInvalid] = useState("");
+  const [pass, setPass] = useState("");
+  const [pass2, setPass2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  useEffect(() => {
+    api.inviteInfo(token)
+      .then(setInfo)
+      .catch((err) => setInvalid((err && (err.error || err.message)) || "El enlace no es válido."));
+  }, [token]);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (pass.length < 8) return setError("La contraseña debe tener al menos 8 caracteres.");
+    if (pass !== pass2) return setError("Las contraseñas no coinciden.");
+    setLoading(true);
+    try {
+      const { user, token: jwt } = await api.activate(token, pass);
+      setToken(jwt);
+      onDone(user);
+    } catch (err) {
+      setError((err && (err.error || err.message)) || "No se pudo activar la cuenta.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center"><UserPlus size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Activar tu cuenta</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Recupera Convivencia</div>
+          </div>
+        </div>
+
+        {invalid ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2"><AlertTriangle size={16} /> {invalid}</div>
+            <button onClick={onCancel} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff" }}>Ir al inicio de sesión</button>
+          </div>
+        ) : !info ? (
+          <div style={{ color: C.textSoft }} className="text-sm">Verificando el enlace…</div>
+        ) : (
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
+              <div style={{ color: C.ink }} className="font-medium">{info.name}</div>
+              <div style={{ color: C.textSoft }} className="text-xs">RUT {info.rut} · {ROLES[info.role]?.label || info.role}</div>
+            </div>
+            <p style={{ color: C.textSoft }} className="text-xs">Crea tu contraseña para acceder. Debe tener al menos 8 caracteres.</p>
+            <label className="block">
+              <span style={{ color: C.textSoft }} className="text-xs font-medium">Nueva contraseña</span>
+              <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" autoFocus className="mt-1 w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={inp} />
+            </label>
+            <label className="block">
+              <span style={{ color: C.textSoft }} className="text-xs font-medium">Repite la contraseña</span>
+              <input type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••••" className="mt-1 w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={inp} />
+            </label>
+            {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
+            <button type="submit" disabled={loading} className="mbtn mt-1 text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
+              {loading ? "Activando…" : "Activar e ingresar"}
+            </button>
+            <p style={{ color: C.textSoft }} className="text-[11px] text-center">Luego podrás activar la verificación en dos pasos desde el botón de seguridad.</p>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -507,7 +591,7 @@ const PORTAL_NAV = {
   normativa: { label: "Motor normativo", icon: Shield },
   redes: { label: "Redes de derivación", icon: Network },
   auditoria: { label: "Panel de auditoría", icon: ClipboardCheck },
-  perfiles: { label: "Perfiles de la comunidad", icon: Users },
+  perfiles: { label: "Usuarios y accesos", icon: Users },
   configuracion: { label: "Configuración", icon: Settings },
   micaso: { label: "Mi caso", icon: FolderOpen },
 };
@@ -626,7 +710,7 @@ function PortalApp(props) {
         {view === "normativa" && <NormativaPage docs={props.docs} setDocs={props.setDocs} role={role} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
         {view === "auditoria" && <AuditPanel cases={cases} />}
-        {view === "perfiles" && <PerfilesPage users={props.users} cases={cases} />}
+        {view === "perfiles" && <PerfilesPage roleKey={session.role} />}
         {view === "configuracion" && <ConfigPage {...props} />}
       </main>
       </div>
@@ -2235,26 +2319,99 @@ function AuditPanel({ cases }) {
   );
 }
 
-function PerfilesPage({ users, cases }) {
+function PerfilesPage({ roleKey }) {
+  const canManage = ["superadmin", "coordinador", "director"].includes(roleKey);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [invite, setInvite] = useState(null); // { url, name }
+  const [copied, setCopied] = useState(false);
+
+  function reload() {
+    if (!canManage) { setLoading(false); return; }
+    setLoading(true);
+    api.listUsers().then(setUsers).catch(() => {}).finally(() => setLoading(false));
+  }
+  useEffect(reload, []);
+
+  async function submit() {
+    if (!form.name.trim() || !form.rut.trim() || saving) return;
+    setError(""); setSaving(true); setInvite(null); setCopied(false);
+    try {
+      const res = await api.inviteUser(form);
+      setInvite({ url: res.inviteUrl, name: form.name });
+      setForm({ name: "", rut: "", role: "profesorJefe", email: "" });
+      reload();
+    } catch (err) {
+      setError((err && (err.error || err.message)) || "No se pudo generar la invitación.");
+    } finally { setSaving(false); }
+  }
+
+  async function copiar(url) {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
+  }
+
+  async function reinvitar(u) {
+    try { const res = await api.reinviteUser(u.id); setInvite({ url: res.inviteUrl, name: u.name }); setCopied(false); } catch (err) { setError((err && (err.error || err.message)) || "No se pudo regenerar."); }
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  if (!canManage) {
+    return <div><PageHead title="Usuarios y accesos" subtitle="Gestión de cuentas del establecimiento." /><div style={{ color: C.textSoft }} className="text-sm">Tu perfil no tiene permisos para gestionar usuarios.</div></div>;
+  }
+
   return (
-    <div>
-      <PageHead title="Perfiles de la comunidad" subtitle="Integrantes con acceso. Cada perfil ve solo la información de su caso; los relatos y datos sensibles quedan resguardados según el rol." right={<Toolbar onPrint={printView} onExport={() => exportJSON(users, "perfiles.json")} />} />
-      <div className="grid sm:grid-cols-2 gap-3">
-        {users.filter((u) => u.role !== "superadmin").map((u) => {
-          const r = ROLES[u.role];
-          const visible = r.scope === "family" ? "Solo su caso" : r.scope === "audit" ? "Todos (solo lectura)" : r.scope === "limited" ? "Casos asignados" : "Todos los casos";
-          return (
-            <div key={u.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center gap-3">
-              <div style={{ background: C.ink }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={17} color="#fff" /></div>
-              <div className="min-w-0">
-                <div style={{ color: C.ink }} className="text-sm font-medium">{u.name}</div>
-                <div style={{ color: C.textSoft }} className="text-xs">{r.label}</div>
-                <div style={{ color: C.seal }} className="text-[11px] mt-0.5">Acceso: {visible}</div>
-              </div>
+    <div className="max-w-3xl">
+      <PageHead title="Usuarios y accesos" subtitle="Invita a integrantes del establecimiento. Cada persona activa su cuenta con un enlace, define su contraseña y (opcional) su verificación en dos pasos." right={<Toolbar onPrint={printView} />} />
+
+      <Section icon={UserPlus} title="Invitar a un nuevo usuario">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nombre completo" className="rounded-md p-2.5 text-sm" style={inp} />
+          <input value={form.rut} onChange={(e) => setForm({ ...form, rut: e.target.value })} placeholder="RUT (12.345.678-9)" className="rounded-md p-2.5 text-sm" style={inp} />
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+            {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Correo (opcional)" className="rounded-md p-2.5 text-sm" style={inp} />
+        </div>
+        {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 mt-3 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
+        <div className="mt-3"><Btn onClick={submit} disabled={saving}>{saving ? "Generando…" : <><UserPlus size={15} /> Generar invitación</>}</Btn></div>
+
+        {invite && (
+          <div style={{ background: "#E8F0FE", border: `1px solid ${C.sidebarActiveBorder}` }} className="rounded-lg p-3 mt-4">
+            <div style={{ color: C.ink }} className="text-sm font-medium mb-1">Enlace de invitación para {invite.name}</div>
+            <div style={{ color: C.textSoft }} className="text-[11px] mb-2">Válido 7 días. Compártelo con la persona (correo, WhatsApp, etc.). Al abrirlo, definirá su contraseña.</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input readOnly value={invite.url} className="rounded-md p-2 text-xs flex-1 min-w-[220px]" style={{ ...inp, ...mono }} onFocus={(e) => e.target.select()} />
+              <Btn variant="ghost" onClick={() => copiar(invite.url)}><ExternalLink size={14} /> {copied ? "¡Copiado!" : "Copiar enlace"}</Btn>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        )}
+      </Section>
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2 mt-2">Usuarios del establecimiento ({users.length})</div>
+      {loading ? <div style={{ color: C.textSoft }} className="text-sm">Cargando…</div> : (
+        <div className="grid sm:grid-cols-2 gap-3">
+          {users.filter((u) => u.role !== "superadmin").map((u) => {
+            const r = ROLES[u.role] || { label: u.role };
+            return (
+              <div key={u.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center gap-3">
+                <div style={{ background: u.activated ? C.ok : C.warn }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={17} color="#fff" /></div>
+                <div className="min-w-0 flex-1">
+                  <div style={{ color: C.ink }} className="text-sm font-medium truncate">{u.name}</div>
+                  <div style={{ color: C.textSoft }} className="text-xs">{r.label}{u.rut ? ` · ${u.rut}` : ""}</div>
+                  <div className="text-[11px] mt-0.5" style={{ color: u.activated ? C.ok : C.warn }}>
+                    {u.activated ? (u.totpEnabled ? "Activa · 2FA on" : "Activa") : "Invitación pendiente"}
+                  </div>
+                </div>
+                {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline shrink-0">Reenviar</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -2270,14 +2427,8 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
     <div className="max-w-2xl">
       <PageHead title="Configuración" subtitle="Usuarios y correos automáticos. Los documentos del establecimiento se cargan en el Motor normativo." />
 
-      <Section icon={UserPlus} title="Crear usuario">
-        <div className="flex flex-col gap-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del usuario" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
-          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
-            {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
-          <div><Btn onClick={() => { if (name.trim()) { setUsers([...users, { id: `u${Date.now()}`, name, role, establishmentId: session.establishmentId }]); setName(""); } }}><Plus size={15} /> Agregar usuario</Btn></div>
-        </div>
+      <Section icon={UserPlus} title="Usuarios y accesos">
+        <p style={{ color: C.textSoft }} className="text-sm">Los usuarios se crean por <b>invitación</b>: se genera un enlace para que cada persona active su cuenta y defina su contraseña. Gestiónalos en la sección <b>“Usuarios y accesos”</b> del menú lateral.</p>
       </Section>
 
       <Section icon={Mail} title="Personalizar correos automáticos">
