@@ -33,14 +33,17 @@ export function urgencyColor(dl, C) {
 }
 
 /* --------------------------- CASOS -------------------------------- */
-export function buildCase(id, typeKey, studentLabel, startOffsetDays, currentStepIdx, apoderadoEmail, extra = {}) {
+export function buildCase(id, typeKey, studentLabel, startOffsetDays, currentStepIdx, apoderadoEmail, extra = {}, overrideSteps = null) {
   const type = CASE_TYPES[typeKey];
   const start = new Date();
   start.setDate(start.getDate() - startOffsetDays);
+  // Si el establecimiento tiene un protocolo propio para este tipo, se usa;
+  // si no, se usa la plantilla normativa nacional (CASE_TYPES).
+  const baseSteps = (overrideSteps && overrideSteps.length) ? overrideSteps : type.steps;
   // Salvaguarda: los plazos nunca decrecen entre pasos → el paso a paso
   // queda siempre en orden cronológico aunque un dato venga mal cargado.
   let accDays = 0;
-  const steps = type.steps.map((s, i) => {
+  const steps = baseSteps.map((s, i) => {
     accDays = Math.max(accDays, s.days);
     return {
       ...s,

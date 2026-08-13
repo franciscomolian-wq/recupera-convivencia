@@ -232,6 +232,7 @@ export default function App() {
   const [gestiones, setGestiones] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [acciones, setAcciones] = useState([]);
+  const [protocols, setProtocols] = useState([]);
 
   // Restaura la sesión si hay un token guardado (recarga de página).
   useEffect(() => {
@@ -261,13 +262,14 @@ export default function App() {
         setGestiones(by("gestion"));
         setDocuments(by("document"));
         setAcciones(by("accion"));
+        setProtocols(by("protocol"));
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -279,7 +281,7 @@ export default function App() {
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
-    documents, setDocuments, acciones, setAcciones,
+    documents, setDocuments, acciones, setAcciones, protocols, setProtocols,
   };
 
   const role = ROLES[session.role];
@@ -727,7 +729,7 @@ function NotificationBell({ notifications, setNotifications }) {
    PORTAL USUARIO
    ================================================================= */
 const PORTAL_NAV_BY_SCOPE = {
-  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "reportes", "planpme", "formatos", "normativa", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
+  admin: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "reportes", "planpme", "formatos", "normativa", "protocolos", "redes", "gestion", "auditoria", "perfiles", "configuracion"],
   audit: ["dashboard", "alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "auditoria", "normativa"],
   limited: ["dashboard", "casos", "expedientes", "pie", "nuevo", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa"],
   family: ["dashboard", "micaso", "normativa"],
@@ -749,6 +751,7 @@ const PORTAL_NAV = {
   planpme: { label: "Plan de convivencia y PME", icon: Target },
   formatos: { label: "Formatos y plantillas", icon: FileText },
   normativa: { label: "Motor normativo", icon: Shield },
+  protocolos: { label: "Protocolos del establecimiento", icon: ClipboardCheck },
   redes: { label: "Redes de derivación", icon: Network },
   auditoria: { label: "Panel de auditoría", icon: ClipboardCheck },
   perfiles: { label: "Usuarios y accesos", icon: Users },
@@ -763,7 +766,7 @@ const NAV_GROUPS = [
   { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
   { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
   { label: "Análisis y planificación", color: "#1A73E8", keys: ["reportes", "planpme"] },
-  { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "auditoria", "perfiles", "configuracion"] },
+  { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "protocolos", "auditoria", "perfiles", "configuracion"] },
 ];
 function initials(name) { return (name || "").split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase(); }
 
@@ -851,7 +854,8 @@ function PortalApp(props) {
       <main className="flex-1 p-6 sm:p-10 min-w-0">
         <div className="hidden lg:flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
         {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
-        {view === "nuevo" && <CaseWizard students={students} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
+        {view === "nuevo" && <CaseWizard students={students} protocols={props.protocols} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
+        {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={role} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
@@ -1878,7 +1882,7 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
 }
 
 /* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
-function CaseWizard({ students, onCreate, onCancel }) {
+function CaseWizard({ students, protocols, onCreate, onCancel }) {
   const [mode, setMode] = useState("predef");
   const [studentId, setStudentId] = useState("");
   const [typeKey, setTypeKey] = useState("");
@@ -1897,7 +1901,8 @@ function CaseWizard({ students, onCreate, onCancel }) {
     setError(""); setSaving(true);
     try {
       const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
-      const built = buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: studentId || null });
+      const proto = (protocols || []).find((p) => p.typeKey === chosenKey);
+      const built = buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: studentId || null }, proto?.steps || null);
       await onCreate(built);
     } catch (err) {
       setError((err && (err.error || err.message)) || "No se pudo guardar el caso.");
@@ -1993,6 +1998,97 @@ function CaseWizard({ students, onCreate, onCancel }) {
           <Btn onClick={create} disabled={!chosenKey || saving}>{saving ? "Guardando…" : <>Generar paso a paso <ChevronRight size={15} /></>}</Btn>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ------- PROTOCOLOS POR ESTABLECIMIENTO (paso a paso propio) ------- */
+function ProtocolsPage({ protocols, setProtocols, role }) {
+  const readOnly = role.scope !== "admin";
+  const [typeKey, setTypeKey] = useState(Object.keys(CASE_TYPES)[0]);
+  const [steps, setSteps] = useState([]);
+  const [saved, setSaved] = useState(false);
+  const existing = protocols.find((p) => p.typeKey === typeKey);
+  const esPropio = !!existing;
+
+  useEffect(() => {
+    const c = protocols.find((p) => p.typeKey === typeKey);
+    const base = (c?.steps && c.steps.length) ? c.steps : CASE_TYPES[typeKey].steps;
+    setSteps(base.map((s) => ({ title: s.title, days: s.days ?? 0, role: s.role || "", basis: s.basis || "" })));
+    setSaved(false);
+  }, [typeKey, protocols]);
+
+  const upd = (i, field, val) => setSteps(steps.map((s, k) => (k === i ? { ...s, [field]: val } : s)));
+  const addStep = () => setSteps([...steps, { title: "", days: (steps[steps.length - 1]?.days || 0) + 1, role: "", basis: "" }]);
+  const removeStep = (i) => setSteps(steps.filter((_, k) => k !== i));
+  const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= steps.length) return; const cp = [...steps]; [cp[i], cp[j]] = [cp[j], cp[i]]; setSteps(cp); };
+
+  async function guardar() {
+    const clean = steps.filter((s) => s.title.trim()).map((s) => ({ title: s.title.trim(), days: Number(s.days) || 0, role: s.role, basis: s.basis }));
+    if (existing) orgUpdate(setProtocols, existing.id, { typeKey, steps: clean });
+    else await orgAdd(setProtocols, "protocol", { typeKey, steps: clean });
+    setSaved(true); setTimeout(() => setSaved(false), 2500);
+  }
+  function restablecer() {
+    if (existing && window.confirm("¿Restablecer al protocolo normativo nacional? Se eliminará la personalización de este tipo de caso.")) orgDelete(setProtocols, existing.id);
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Protocolos del establecimiento" subtitle="Personaliza el paso a paso de cada tipo de caso según tu Reglamento Interno de Convivencia (RICE), sobre la base legal nacional. Se aplica al crear casos nuevos." right={<Toolbar onPrint={printView} />} />
+
+      <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-lg p-3 text-xs mb-4 leading-relaxed">
+        La <b>base es la normativa nacional</b> (Ley 21.809, Aula Segura, etc.). Aquí puedes ajustar los pasos, plazos y responsables según el <b>manual de convivencia de tu establecimiento</b>. Si no personalizas un tipo, se usa el protocolo nacional por defecto.
+      </div>
+
+      <div className="mb-4">
+        <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Tipo de caso</label>
+        <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp}>
+          {Object.entries(CASE_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <div className="mt-1.5">
+          {esPropio
+            ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Protocolo propio del establecimiento</span>
+            : <span style={{ background: C.textSoft + "22", color: C.textSoft }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Usando protocolo normativo nacional</span>}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {steps.map((s, i) => (
+          <div key={i} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span style={{ background: C.primary }} className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0">{i + 1}</span>
+              <input value={s.title} onChange={(e) => upd(i, "title", e.target.value)} disabled={readOnly} placeholder="Título del paso" className="flex-1 rounded-md p-2 text-sm" style={inp} />
+              {!readOnly && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => move(i, -1)} title="Subir" style={{ color: C.textSoft }} className="px-1">↑</button>
+                  <button onClick={() => move(i, 1)} title="Bajar" style={{ color: C.textSoft }} className="px-1">↓</button>
+                  <button onClick={() => removeStep(i)} title="Eliminar" style={{ color: C.urgent }}><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-[90px_1fr] gap-2">
+              <div className="flex items-center gap-1.5">
+                <input type="number" min="0" value={s.days} onChange={(e) => upd(i, "days", e.target.value)} disabled={readOnly} className="w-16 rounded-md p-1.5 text-xs" style={inp} />
+                <span style={{ color: C.textSoft }} className="text-[11px]">días háb.</span>
+              </div>
+              <input value={s.role} onChange={(e) => upd(i, "role", e.target.value)} disabled={readOnly} placeholder="Responsable" className="rounded-md p-1.5 text-xs" style={inp} />
+            </div>
+            <input value={s.basis} onChange={(e) => upd(i, "basis", e.target.value)} disabled={readOnly} placeholder="Base legal / referencia (ej: Ley 21.809, art. X del RICE)" className="mt-2 w-full rounded-md p-1.5 text-xs" style={inp} />
+          </div>
+        ))}
+      </div>
+
+      {!readOnly && (
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <Btn variant="ghost" onClick={addStep}><Plus size={14} /> Agregar paso</Btn>
+          <Btn onClick={guardar}><CheckCircle2 size={15} /> Guardar protocolo</Btn>
+          {esPropio && <button onClick={restablecer} style={{ color: C.urgent }} className="text-xs underline">Restablecer al nacional</button>}
+          {saved && <span style={{ color: C.ok }} className="text-sm flex items-center gap-1"><CheckCircle2 size={15} /> Guardado</span>}
+        </div>
+      )}
     </div>
   );
 }
