@@ -79,6 +79,20 @@ export const api = {
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
 
+  // --- Administración: estado del sistema y respaldo ---
+  adminStatus: () => request("/api/admin/status", { auth: true }),
+  downloadBackup: async () => {
+    const res = await fetch(API_URL + "/api/admin/backup", { headers: { Authorization: "Bearer " + getToken() } });
+    if (!res.ok) throw await res.json().catch(() => ({ error: "No se pudo generar el respaldo." }));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `respaldo-recupera-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
   // --- Registros a nivel establecimiento (mensajes, agenda, gestiones, documental, PME) ---
   listOrgRecords: () => request("/api/org/records", { auth: true }),
   addOrgRecord: (kind, data, global) => request("/api/org/records", { method: "POST", body: { kind, data, global }, auth: true }),

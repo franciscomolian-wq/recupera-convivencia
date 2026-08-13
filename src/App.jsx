@@ -2596,6 +2596,7 @@ const ADMIN_NAV = {
   difusion: { label: "Difusión", icon: Megaphone },
   metricas: { label: "Métricas por institución", icon: BarChart3 },
   ranking: { label: "Ranking de cumplimiento", icon: Trophy },
+  sistema: { label: "Respaldo y estado", icon: Shield },
   configuracion: { label: "Configuración", icon: Settings },
 };
 
@@ -2632,6 +2633,7 @@ function AdminApp(props) {
         {view === "difusion" && <AdminBroadcast {...props} />}
         {view === "metricas" && <AdminMetrics {...props} />}
         {view === "ranking" && <AdminRanking {...props} />}
+        {view === "sistema" && <AdminSystem />}
         {view === "configuracion" && <AdminConfig {...props} />}
       </main>
     </div>
@@ -2965,6 +2967,57 @@ function AdminRanking({ establishments }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function AdminSystem() {
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const load = () => { setError(""); api.adminStatus().then(setStatus).catch((e) => setError((e && (e.error || e.message)) || "No se pudo cargar el estado.")); };
+  useEffect(load, []);
+
+  async function backup() {
+    setDownloading(true); setError("");
+    try { await api.downloadBackup(); } catch (e) { setError((e && (e.error || e.message)) || "No se pudo generar el respaldo."); }
+    finally { setDownloading(false); }
+  }
+
+  const dot = (ok) => <span style={{ background: ok ? C.ok : C.urgent }} className="w-2.5 h-2.5 rounded-full inline-block" />;
+
+  return (
+    <div className="max-w-2xl">
+      <PageHead title="Respaldo y estado del sistema" subtitle="Monitoreo de la plataforma y respaldo de los datos (Ley 21.719)." right={<Btn variant="ghost" onClick={load}>Actualizar</Btn>} />
+
+      {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2 mb-4">{error}</div>}
+
+      <Section icon={CheckCircle2} title="Estado del sistema">
+        {!status ? <div style={{ color: C.textSoft }} className="text-sm">Cargando…</div> : (
+          <div className="grid sm:grid-cols-2 gap-3 text-sm">
+            <div className="flex items-center gap-2">{dot(status.db === "ok")} Base de datos: <b>{status.db === "ok" ? "operativa" : "con problemas"}</b></div>
+            <div className="flex items-center gap-2">{dot(status.security?.encryption)} Cifrado en reposo: <b>{status.security?.encryption ? "activo" : "inactivo"}</b></div>
+            <div className="flex items-center gap-2">{dot(status.security?.email)} Envío de correos: <b>{status.security?.email ? "activo" : "inactivo"}</b></div>
+            <div className="flex items-center gap-2" style={{ color: C.textSoft }}>Tiempo activo: {Math.floor((status.uptimeSeconds || 0) / 3600)}h {Math.floor(((status.uptimeSeconds || 0) % 3600) / 60)}m</div>
+          </div>
+        )}
+        {status?.counts && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <StatCard label="Establecimientos" value={status.counts.establishments} color={C.primary} />
+            <StatCard label="Usuarios" value={status.counts.users} color={C.ink} />
+            <StatCard label="Estudiantes" value={status.counts.students} color={C.ink} />
+            <StatCard label="Casos" value={status.counts.cases} color={C.ink} />
+          </div>
+        )}
+      </Section>
+
+      <Section icon={Download} title="Respaldo de datos">
+        <p style={{ color: C.textSoft }} className="text-sm mb-3">Descarga una copia completa de todos los datos en formato JSON. No incluye contraseñas ni secretos de 2FA; el relato de los casos va cifrado.</p>
+        <Btn onClick={backup} disabled={downloading}><Download size={15} /> {downloading ? "Generando…" : "Descargar respaldo (JSON)"}</Btn>
+        <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-lg p-3 text-xs mt-4 leading-relaxed">
+          <b>Recomendación:</b> además de esta descarga manual, activa los <b>respaldos automáticos</b> de la base de datos en el panel de Railway (servicio Postgres → Backups) y configura un monitor de disponibilidad gratuito (ej. UptimeRobot) apuntando a <code>/health</code>.
+        </div>
+      </Section>
     </div>
   );
 }
