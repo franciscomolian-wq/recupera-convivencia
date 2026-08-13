@@ -146,6 +146,35 @@ function orgDelete(setter, id) {
   api.deleteOrgRecord(id).catch((e) => console.error("orgDelete", e));
 }
 
+/* Importación persistente a la BD (reemplaza la carga solo-en-memoria). */
+async function importOrgRecords(setter, kind, rows) {
+  const created = [];
+  for (const row of rows || []) {
+    const { id, ...data } = row || {};
+    try { const r = await api.addOrgRecord(kind, data); created.push({ id: r.id, ...(r.data || {}) }); } catch (e) { console.error("import", kind, e); }
+  }
+  if (created.length) setter((prev) => [...created, ...prev]);
+  return created.length;
+}
+async function importCases(setCases, existing, rows) {
+  const codes = new Set((existing || []).map((c) => c.id));
+  const created = [];
+  for (const c of rows || []) {
+    if (!c || !c.typeKey || codes.has(c.id)) continue;
+    try {
+      const cr = await api.createCase({
+        code: c.id, typeKey: c.typeKey, studentLabel: c.studentLabel || "Importado",
+        level: c.level, relato: c.relato, curso: c.curso, fechaHecho: c.fechaHecho, hora: c.hora,
+        lugar: c.lugar, testigos: c.testigos, adultosRef: c.adultosRef, studentId: null,
+        steps: (c.steps || []).map((s) => ({ title: s.title, role: s.role, basis: s.basis, due: s.due })),
+      });
+      created.push(apiCaseToUI(cr));
+    } catch (e) { console.error("importCase", e); }
+  }
+  if (created.length) setCases((prev) => [...created, ...prev]);
+  return created.length;
+}
+
 /* Carga masiva de usuarios: mapeo de rol (clave o etiqueta) y parser CSV. */
 const ROLE_KEY_BY_TEXT = Object.entries(ROLES).reduce((m, [k, v]) => {
   m[k.toLowerCase()] = k;
@@ -1731,7 +1760,7 @@ function DocumentalPage({ documents, setDocuments, cases, role }) {
 
   return (
     <div className="max-w-4xl">
-      <PageHead title="Gestión documental" subtitle="Repositorio de informes, actas, protocolos, oficios, resoluciones, certificados, consentimientos y evidencias. Enlazable a Google Drive." right={<Toolbar onPrint={printView} onExport={() => exportJSON(documents, "documentos.json")} onImport={(data) => Array.isArray(data) && setDocuments(data)} />} />
+      <PageHead title="Gestión documental" subtitle="Repositorio de informes, actas, protocolos, oficios, resoluciones, certificados, consentimientos y evidencias. Enlazable a Google Drive." right={<Toolbar onPrint={printView} onExport={() => exportJSON(documents, "documentos.json")} onImport={async (data) => { if (Array.isArray(data)) { const n = await importOrgRecords(setDocuments, "document", data); alert(`${n} documento(s) importado(s) y guardado(s).`); } }} />} />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <StatCard label="Documentos" value={documents.length} color={C.ink} />
         <StatCard label="Actas" value={documents.filter((x) => x.categoria === "Acta").length} color={C.ink} />
@@ -2227,7 +2256,7 @@ function ReportsPage({ cases, setCases, students = [] }) {
   return (
     <div>
       <PageHead title="Reportes y estadísticas" subtitle="Reporte dinámico: filtra por tipo, nivel y estado. Imprime, exporta (JSON/CSV) o importa respaldos."
-        right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "reporte-casos.json")} onImport={(data) => Array.isArray(data) && setCases(data)} />} />
+        right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "reporte-casos.json")} onImport={async (data) => { if (Array.isArray(data)) { const n = await importCases(setCases, cases, data); alert(`${n} caso(s) importado(s) y guardado(s) en la base de datos.`); } }} />} />
       <div className="flex gap-3 mb-4 flex-wrap print:hidden">
         <select value={ftype} onChange={(e) => setFtype(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
           <option value="">Todos los tipos</option>
