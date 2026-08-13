@@ -146,6 +146,41 @@ function orgDelete(setter, id) {
   api.deleteOrgRecord(id).catch((e) => console.error("orgDelete", e));
 }
 
+/* Carga masiva de usuarios: mapeo de rol (clave o etiqueta) y parser CSV. */
+const ROLE_KEY_BY_TEXT = Object.entries(ROLES).reduce((m, [k, v]) => {
+  m[k.toLowerCase()] = k;
+  m[(v.label || "").toLowerCase()] = k;
+  return m;
+}, {});
+function roleKeyFromText(t) {
+  const s = (t || "").trim().toLowerCase();
+  return ROLE_KEY_BY_TEXT[s] || (ROLES[s] ? s : "");
+}
+function parseUsersCsv(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const split = (l) => l.split(/[,;]/).map((c) => c.trim().replace(/^"|"$/g, ""));
+  const header = split(lines[0]).map((h) => h.toLowerCase());
+  const hasHeader = header.some((h) => /nombre|name|rut|rol|role|correo|email/.test(h));
+  const idx = {
+    name: header.findIndex((h) => /nombre|name/.test(h)),
+    rut: header.findIndex((h) => /rut/.test(h)),
+    role: header.findIndex((h) => /rol|role/.test(h)),
+    email: header.findIndex((h) => /correo|email|mail/.test(h)),
+  };
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  const g = (cols, key, def) => { const i = hasHeader ? idx[key] : def; return i >= 0 ? (cols[i] || "") : ""; };
+  return dataLines.map((l) => {
+    const cols = split(l);
+    return {
+      name: g(cols, "name", 0),
+      rut: g(cols, "rut", 1),
+      role: roleKeyFromText(g(cols, "role", 2)),
+      email: g(cols, "email", 3),
+    };
+  }).filter((r) => r.name || r.rut);
+}
+
 /* =================================================================
    RAÍZ — login + enrutado por rol
    ================================================================= */
@@ -2485,6 +2520,32 @@ function PerfilesPage({ roleKey }) {
     catch (err) { setError((err && (err.error || err.message)) || "No se pudo eliminar."); }
   }
 
+  // --- Carga masiva ---
+  const [bulkRows, setBulkRows] = useState(null);
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  function onBulkFile(file) {
+    setBulkResult(null); setError("");
+    const reader = new FileReader();
+    reader.onload = () => { try { setBulkRows(parseUsersCsv(String(reader.result))); } catch { setError("No se pudo leer el archivo."); } };
+    reader.readAsText(file);
+  }
+  function descargarPlantilla() {
+    const csv = "nombre,rut,rol,correo\nJuan Pérez,12.345.678-5,profesorJefe,juan@correo.cl\nAna Soto,7.777.777-6,docente,ana@correo.cl\n";
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "plantilla-usuarios.csv"; a.click(); URL.revokeObjectURL(a.href);
+  }
+  async function confirmarCarga() {
+    if (!bulkRows?.length || bulkLoading) return;
+    setBulkLoading(true); setError("");
+    try {
+      const res = await api.bulkInvite(bulkRows);
+      setBulkResult(res); setBulkRows(null); reload();
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo procesar la carga."); }
+    finally { setBulkLoading(false); }
+  }
+
   const [editing, setEditing] = useState(null); // { id, name, email, role }
   async function guardarEdicion() {
     if (!editing) return;
@@ -2533,6 +2594,54 @@ function PerfilesPage({ roleKey }) {
               <input readOnly value={invite.url} className="rounded-md p-2 text-xs flex-1 min-w-[220px]" style={{ ...inp, ...mono }} onFocus={(e) => e.target.select()} />
               <Btn variant="ghost" onClick={() => copiar(invite.url)}><ExternalLink size={14} /> {copied ? "¡Copiado!" : "Copiar enlace"}</Btn>
             </div>
+          </div>
+        )}
+      </Section>
+
+      <Section icon={Upload} title="Carga masiva (varios usuarios a la vez)">
+        <p style={{ color: C.textSoft }} className="text-sm mb-3">Sube un archivo <b>CSV</b> con columnas <code>nombre, rut, rol, correo</code>. Se crean todas las cuentas y se envía la invitación por correo a cada una automáticamente. Desde Excel: “Guardar como → CSV”.</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={descargarPlantilla} className="mbtn-outline text-sm px-3.5 py-2 rounded-full inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><Download size={14} /> Descargar plantilla</button>
+          <label className="mbtn-outline text-sm px-3.5 py-2 rounded-full cursor-pointer inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+            <Upload size={14} /> Elegir archivo CSV
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onBulkFile(f); e.target.value = ""; }} />
+          </label>
+        </div>
+
+        {bulkRows && bulkRows.length > 0 && (
+          <div className="mt-4">
+            <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Vista previa ({bulkRows.length} fila{bulkRows.length !== 1 ? "s" : ""})</div>
+            <div className="rounded-lg overflow-hidden text-xs" style={{ border: `1px solid ${C.cardBorder}` }}>
+              {bulkRows.slice(0, 8).map((r, i) => {
+                const bad = !r.name || !r.rut || !r.role;
+                return (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2" style={{ borderTop: i ? `1px solid ${C.cardBorder}` : "none", background: bad ? "#FCE8E6" : C.cardBg }}>
+                    <span className="flex-1 truncate" style={{ color: C.ink }}>{r.name || <i style={{ color: C.urgent }}>sin nombre</i>}</span>
+                    <span style={{ color: C.textSoft }} className="w-28 shrink-0">{r.rut || "—"}</span>
+                    <span style={{ color: r.role ? C.textSoft : C.urgent }} className="w-32 shrink-0">{r.role ? (ROLES[r.role]?.label || r.role) : "rol inválido"}</span>
+                    <span style={{ color: C.textSoft }} className="w-40 shrink-0 truncate">{r.email || "—"}</span>
+                  </div>
+                );
+              })}
+              {bulkRows.length > 8 && <div className="px-3 py-2 text-center" style={{ color: C.textSoft, borderTop: `1px solid ${C.cardBorder}` }}>… y {bulkRows.length - 8} más</div>}
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <Btn onClick={confirmarCarga} disabled={bulkLoading}>{bulkLoading ? "Procesando…" : <><UserPlus size={15} /> Crear e invitar a {bulkRows.length}</>}</Btn>
+              <button onClick={() => setBulkRows(null)} className="text-sm px-3 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button>
+            </div>
+          </div>
+        )}
+        {bulkRows && bulkRows.length === 0 && <div style={{ color: C.urgent }} className="text-xs mt-3">El archivo no tiene filas válidas. Revisa las columnas nombre, rut, rol, correo.</div>}
+
+        {bulkResult && (
+          <div style={{ background: "#E6F4EA", border: `1px solid ${C.ok}` }} className="rounded-lg p-3 mt-4 text-xs">
+            <div style={{ color: C.ok }} className="font-medium flex items-center gap-1.5 mb-1"><CheckCircle2 size={14} /> {bulkResult.created} de {bulkResult.total} cuentas creadas · {bulkResult.emailsSent} correos enviados</div>
+            {bulkResult.results.filter((r) => !r.ok).length > 0 && (
+              <div style={{ color: C.textSoft }} className="mt-1">
+                <b>No creadas:</b>
+                {bulkResult.results.filter((r) => !r.ok).slice(0, 10).map((r, i) => <div key={i}>· {r.name || r.rut || "—"}: {r.error}</div>)}
+              </div>
+            )}
           </div>
         )}
       </Section>

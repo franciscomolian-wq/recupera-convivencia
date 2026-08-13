@@ -50,6 +50,7 @@ export const api = {
   inviteUser: (payload) => request("/api/users/invite", { method: "POST", body: payload, auth: true }),
   reinviteUser: (id) => request(`/api/users/${id}/reinvite`, { method: "POST", auth: true }),
   updateUser: (id, patch) => request(`/api/users/${id}`, { method: "PATCH", body: patch, auth: true }),
+  bulkInvite: (users) => request("/api/users/bulk-invite", { method: "POST", body: { users }, auth: true }),
 
   // --- Casos ---
   listCases: () => request("/api/cases", { auth: true }),
