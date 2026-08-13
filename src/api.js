@@ -79,6 +79,11 @@ export const api = {
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
 
+  // --- Establecimientos (panel Súper Admin) ---
+  listEstablishments: () => request("/api/establishments", { auth: true }),
+  createEstablishment: (e) => request("/api/establishments", { method: "POST", body: e, auth: true }),
+  updateEstablishment: (id, e) => request(`/api/establishments/${id}`, { method: "PATCH", body: e, auth: true }),
+
   // --- Administración: estado del sistema y respaldo ---
   adminStatus: () => request("/api/admin/status", { auth: true }),
   downloadBackup: async () => {

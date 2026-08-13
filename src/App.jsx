@@ -69,8 +69,17 @@ function apiCaseToUI(ac) {
     autoEmails: !!ac.autoEmails,
     closed: !!ac.closed, closedAt: ac.closedAt, closeSummary: ac.closeSummary || "",
     studentId: ac.studentId || null,
+    establishmentId: ac.establishmentId || null,
     log: [],
   };
+}
+
+// Establecimiento de la API + estadísticas derivadas de los casos.
+function apiEstablishmentToUI(e, cases) {
+  const mine = cases.filter((c) => c.establishmentId === e.id);
+  const activos = mine.filter((c) => !c.closed).length;
+  const vencidos = mine.filter((c) => !c.closed && daysLeft((c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1] || {}).due) < 0).length;
+  return { ...e, activos, vencidos, cumplimiento: e.cumplimiento ?? 100 };
 }
 
 /* kind (BD) → nombre del arreglo en la UI (inspectoría, PIE, apoderados). */
@@ -175,11 +184,13 @@ export default function App() {
     if (!session) return;
     let vivo = true;
     setDataLoading(true);
-    Promise.all([api.listCases(), api.listStudents(), api.listOrgRecords()])
-      .then(([cs, ss, org]) => {
+    Promise.all([api.listCases(), api.listStudents(), api.listOrgRecords(), api.listEstablishments()])
+      .then(([cs, ss, org, ests]) => {
         if (!vivo) return;
-        setCases(cs.map(apiCaseToUI));
+        const mappedCases = cs.map(apiCaseToUI);
+        setCases(mappedCases);
         setStudents(ss.map(apiStudentToUI));
+        if (Array.isArray(ests) && ests.length) setEstablishments(ests.map((e) => apiEstablishmentToUI(e, mappedCases)));
         const by = (k) => org.filter((r) => r.kind === k).map((r) => ({ id: r.id, ...(r.data || {}) }));
         setMessages(by("message"));
         setEvents(by("event"));
@@ -2742,9 +2753,10 @@ function AdminBilling({ establishments, setEstablishments }) {
   const maxRev = Math.max(...MONTHLY_REVENUE_UF.map((m) => m.uf), 1);
 
   const statusColor = { pagado: C.ok, adeudado: C.urgent, parcial: C.warn, "sin tarifa": C.textSoft };
-  function registrarPago(id) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, paidUF: (e.students || 0) * (e.ufPerStudent || 0) } : e))); }
-  function marcarImpago(id) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, paidUF: 0 } : e))); }
-  function setField(id, field, value) { setEstablishments(establishments.map((e) => (e.id === id ? { ...e, [field]: value } : e))); }
+  function persist(id, patch) { if (String(id).length > 12) api.updateEstablishment(id, patch).catch((e) => console.error("establishment", e)); }
+  function registrarPago(id) { const e = establishments.find((x) => x.id === id); const paidUF = (e?.students || 0) * (e?.ufPerStudent || 0); setEstablishments(establishments.map((x) => (x.id === id ? { ...x, paidUF } : x))); persist(id, { paidUF }); }
+  function marcarImpago(id) { setEstablishments(establishments.map((x) => (x.id === id ? { ...x, paidUF: 0 } : x))); persist(id, { paidUF: 0 }); }
+  function setField(id, field, value) { setEstablishments(establishments.map((x) => (x.id === id ? { ...x, [field]: value } : x))); persist(id, { [field]: value }); }
   const cellInput = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
   return (
@@ -3036,7 +3048,14 @@ function AdminConfig({ establishments, setEstablishments }) {
           <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
             {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <div><Btn accent={C.admin} onClick={() => { if (name.trim()) { setEstablishments([...establishments, { id: `e${Date.now()}`, name, comuna, type, sostenedor: "—", activos: 0, vencidos: 0, cumplimiento: 100, students: 0, ufPerStudent: 0.05, paidUF: 0 }]); setName(""); setComuna(""); } }}><Plus size={15} /> Registrar</Btn></div>
+          <div><Btn accent={C.admin} onClick={async () => {
+            if (!name.trim()) return;
+            try {
+              const e = await api.createEstablishment({ name, comuna, type });
+              setEstablishments([...establishments, { ...e, activos: 0, vencidos: 0, cumplimiento: e.cumplimiento ?? 100 }]);
+              setName(""); setComuna("");
+            } catch (err) { alert((err && (err.error || err.message)) || "No se pudo registrar."); }
+          }}><Plus size={15} /> Registrar</Btn></div>
         </div>
       </Section>
     </div>
