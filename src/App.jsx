@@ -175,6 +175,22 @@ async function importCases(setCases, existing, rows) {
   return created.length;
 }
 
+/* Extrae el texto de un PDF en el navegador (carga diferida de pdf.js). */
+async function extractPdfText(file) {
+  const pdfjs = await import("pdfjs-dist");
+  const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((it) => it.str).join(" ") + "\n";
+  }
+  return text.trim();
+}
+
 /* Carga masiva de usuarios: mapeo de rol (clave o etiqueta) y parser CSV. */
 const ROLE_KEY_BY_TEXT = Object.entries(ROLES).reduce((m, [k, v]) => {
   m[k.toLowerCase()] = k;
@@ -2019,6 +2035,17 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
   const [recoError, setRecoError] = useState("");
   useEffect(() => { api.protocolAiStatus().then((s) => setAiAvailable(!!s.ai)).catch(() => {}); }, []);
 
+  const [pdfLoading, setPdfLoading] = useState(false);
+  async function onPdf(file) {
+    setRecoError(""); setRecoInfo(""); setPdfLoading(true);
+    try {
+      const text = await extractPdfText(file);
+      if (!text) setRecoError("No se pudo extraer texto del PDF (¿es un PDF escaneado/imagen?). Pega el texto manualmente.");
+      else { setManualText(text); setRecoInfo(`Texto extraído del PDF (${text.length.toLocaleString("es-CL")} caracteres). Revisa y presiona “Recomendar protocolo”.`); }
+    } catch (e) { console.error(e); setRecoError("No se pudo leer el PDF. Prueba pegando el texto."); }
+    finally { setPdfLoading(false); }
+  }
+
   async function recomendar() {
     if (!manualText.trim() || recommending) return;
     setRecommending(true); setRecoError(""); setRecoInfo("");
@@ -2079,8 +2106,14 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
       {!readOnly && (
         <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4 mb-4">
           <div style={{ color: C.ink }} className="text-sm font-medium mb-1 flex items-center gap-2"><Sparkles size={15} style={{ color: C.seal }} /> Recomendar desde mi manual {aiAvailable ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[10px] px-2 py-0.5 rounded-full">IA activa</span> : <span style={{ background: C.warn + "22", color: C.warn }} className="text-[10px] px-2 py-0.5 rounded-full">IA no disponible</span>}</div>
-          <p style={{ color: C.textSoft }} className="text-xs mb-2">Pega el texto de tu Reglamento Interno de Convivencia (RICE). El motor propondrá un paso a paso para <b>{CASE_TYPES[typeKey].label}</b> combinando tu manual con la base legal. <b>La ley siempre se respeta como mínimo.</b></p>
-          <textarea value={manualText} onChange={(e) => setManualText(e.target.value)} rows={4} placeholder="Pega aquí el texto de tu manual de convivencia (o la sección relevante)…" className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          <p style={{ color: C.textSoft }} className="text-xs mb-2">Sube el PDF de tu Reglamento Interno de Convivencia (RICE) o pega el texto. El motor propondrá un paso a paso para <b>{CASE_TYPES[typeKey].label}</b> combinando tu manual con la base legal. <b>La ley siempre se respeta como mínimo.</b></p>
+          <div className="mb-2">
+            <label className="mbtn-outline text-sm px-3.5 py-2 rounded-full cursor-pointer inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary, opacity: pdfLoading ? 0.5 : 1 }}>
+              <FileText size={14} /> {pdfLoading ? "Leyendo PDF…" : "Subir PDF del manual"}
+              <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={pdfLoading} onChange={(e) => { const f = e.target.files?.[0]; if (f) onPdf(f); e.target.value = ""; }} />
+            </label>
+          </div>
+          <textarea value={manualText} onChange={(e) => setManualText(e.target.value)} rows={4} placeholder="…o pega aquí el texto de tu manual de convivencia (o la sección relevante)…" className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <Btn onClick={recomendar} accent={C.seal} disabled={recommending || !manualText.trim()}><Sparkles size={14} /> {recommending ? "Analizando tu manual…" : "Recomendar protocolo"}</Btn>
             {recoInfo && <span style={{ color: C.ok }} className="text-xs">{recoInfo}</span>}
