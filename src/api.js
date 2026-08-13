@@ -78,6 +78,10 @@ export const api = {
   updateStudentRecord: (rid, data) => request(`/api/students/records/${rid}`, { method: "PATCH", body: { data }, auth: true }),
   deleteStudentRecord: (rid) => request(`/api/students/records/${rid}`, { method: "DELETE", auth: true }),
 
+  // --- Motor de protocolos (recomienda desde el manual) ---
+  protocolAiStatus: () => request("/api/protocols/status", { auth: true }),
+  recommendProtocol: (typeLabel, nationalSteps, manualText) => request("/api/protocols/recommend", { method: "POST", body: { typeLabel, nationalSteps, manualText }, auth: true }),
+
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
 

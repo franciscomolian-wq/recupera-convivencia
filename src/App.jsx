@@ -2011,6 +2011,27 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
   const existing = protocols.find((p) => p.typeKey === typeKey);
   const esPropio = !!existing;
 
+  // Motor de recomendación desde el manual
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [manualText, setManualText] = useState("");
+  const [recommending, setRecommending] = useState(false);
+  const [recoInfo, setRecoInfo] = useState("");
+  const [recoError, setRecoError] = useState("");
+  useEffect(() => { api.protocolAiStatus().then((s) => setAiAvailable(!!s.ai)).catch(() => {}); }, []);
+
+  async function recomendar() {
+    if (!manualText.trim() || recommending) return;
+    setRecommending(true); setRecoError(""); setRecoInfo("");
+    try {
+      const res = await api.recommendProtocol(CASE_TYPES[typeKey].label, CASE_TYPES[typeKey].steps, manualText);
+      setSteps((res.steps || []).map((s) => ({ title: s.title, days: s.days ?? 0, role: s.role || "", basis: s.basis || "", legal: s.legal })));
+      setRecoInfo(res.source === "ai"
+        ? "Borrador generado desde tu manual (IA). Revísalo y guárdalo."
+        : "La IA no estaba disponible; se muestra el protocolo legal nacional. Puedes editarlo igual.");
+    } catch (err) { setRecoError((err && (err.error || err.message)) || "No se pudo generar la recomendación."); }
+    finally { setRecommending(false); }
+  }
+
   useEffect(() => {
     const c = protocols.find((p) => p.typeKey === typeKey);
     const base = (c?.steps && c.steps.length) ? c.steps : CASE_TYPES[typeKey].steps;
@@ -2055,11 +2076,28 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
         </div>
       </div>
 
+      {!readOnly && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4 mb-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-1 flex items-center gap-2"><Sparkles size={15} style={{ color: C.seal }} /> Recomendar desde mi manual {aiAvailable ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[10px] px-2 py-0.5 rounded-full">IA activa</span> : <span style={{ background: C.warn + "22", color: C.warn }} className="text-[10px] px-2 py-0.5 rounded-full">IA no disponible</span>}</div>
+          <p style={{ color: C.textSoft }} className="text-xs mb-2">Pega el texto de tu Reglamento Interno de Convivencia (RICE). El motor propondrá un paso a paso para <b>{CASE_TYPES[typeKey].label}</b> combinando tu manual con la base legal. <b>La ley siempre se respeta como mínimo.</b></p>
+          <textarea value={manualText} onChange={(e) => setManualText(e.target.value)} rows={4} placeholder="Pega aquí el texto de tu manual de convivencia (o la sección relevante)…" className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <Btn onClick={recomendar} accent={C.seal} disabled={recommending || !manualText.trim()}><Sparkles size={14} /> {recommending ? "Analizando tu manual…" : "Recomendar protocolo"}</Btn>
+            {recoInfo && <span style={{ color: C.ok }} className="text-xs">{recoInfo}</span>}
+            {recoError && <span style={{ color: C.urgent }} className="text-xs">{recoError}</span>}
+          </div>
+          <p style={{ color: C.textSoft }} className="text-[11px] mt-2">⚠️ Es un <b>borrador</b> de apoyo: revísalo y ajústalo. No reemplaza la revisión legal ni la decisión del equipo de convivencia. Solo se envía el texto del manual, nunca datos de estudiantes.</p>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2.5">
         {steps.map((s, i) => (
-          <div key={i} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3">
+          <div key={i} style={{ background: C.cardBg, border: `1px solid ${s.legal === false ? C.seal : C.cardBorder}` }} className="rounded-lg p-3">
             <div className="flex items-center gap-2 mb-2">
-              <span style={{ background: C.primary }} className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0">{i + 1}</span>
+              <span style={{ background: s.legal === false ? C.seal : C.primary }} className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0">{i + 1}</span>
+              {s.legal === false
+                ? <span style={{ background: C.seal + "22", color: C.seal }} className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0">RICE</span>
+                : s.legal === true ? <span style={{ background: C.primary + "18", color: C.primary }} className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0">Ley</span> : null}
               <input value={s.title} onChange={(e) => upd(i, "title", e.target.value)} disabled={readOnly} placeholder="Título del paso" className="flex-1 rounded-md p-2 text-sm" style={inp} />
               {!readOnly && (
                 <div className="flex items-center gap-1 shrink-0">
