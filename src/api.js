@@ -76,6 +76,9 @@ export const api = {
   updateStudentRecord: (rid, data) => request(`/api/students/records/${rid}`, { method: "PATCH", body: { data }, auth: true }),
   deleteStudentRecord: (rid) => request(`/api/students/records/${rid}`, { method: "DELETE", auth: true }),
 
+  // --- Auditoría (Ley 21.719) ---
+  listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
+
   // --- Registros a nivel establecimiento (mensajes, agenda, gestiones, documental, PME) ---
   listOrgRecords: () => request("/api/org/records", { auth: true }),
   addOrgRecord: (kind, data, global) => request("/api/org/records", { method: "POST", body: { kind, data, global }, auth: true }),

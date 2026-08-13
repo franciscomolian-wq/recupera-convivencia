@@ -236,6 +236,7 @@ function Login({ onLogin }) {
   const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPriv, setShowPriv] = useState(false);
 
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
@@ -333,7 +334,37 @@ function Login({ onLogin }) {
         )}
         <p style={{ color: C.textSoft }} className="text-[11px] mt-5 leading-relaxed">
           El acceso es exclusivo para personal autorizado del establecimiento.
+          {" "}<button type="button" onClick={() => setShowPriv(true)} style={{ color: C.primary }} className="underline">Política de privacidad</button>.
         </p>
+      </div>
+      {showPriv && <PrivacyPolicy onClose={() => setShowPriv(false)} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   POLÍTICA DE PRIVACIDAD — borrador base Ley 21.719 (requiere revisión legal)
+   ---------------------------------------------------------------- */
+function PrivacyPolicy({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.4)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-6 w-full max-w-lg shadow-lg max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center"><Lock size={16} color="#fff" /></div>
+          <div style={{ ...serif, color: C.ink }} className="text-base flex-1">Política de privacidad y protección de datos</div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: C.textSoft }}><X size={16} /></button>
+        </div>
+        <div style={{ color: C.text }} className="text-xs leading-relaxed flex flex-col gap-2.5">
+          <p><b>Marco legal.</b> Esta plataforma trata datos personales conforme a la Ley N.º 21.719 sobre protección de datos personales de Chile y la normativa educativa vigente.</p>
+          <p><b>Datos que se tratan.</b> Datos de identificación de estudiantes, apoderados y personal (nombre, RUT, curso, correo), y antecedentes de convivencia escolar (casos, medidas, entrevistas). Parte de esta información corresponde a <b>datos sensibles</b> y de <b>niños, niñas y adolescentes</b>, con protección reforzada.</p>
+          <p><b>Finalidad.</b> Gestionar los procesos de convivencia escolar del establecimiento: registro de incidentes, seguimiento de protocolos, expediente del estudiante y comunicación entre estamentos.</p>
+          <p><b>Base de licitud.</b> Cumplimiento de deberes legales del establecimiento educacional e interés legítimo en la protección de la comunidad escolar.</p>
+          <p><b>Seguridad.</b> Acceso con credencial personal (RUT + contraseña) y verificación en dos pasos opcional; <b>cifrado en reposo</b> de datos sensibles; <b>registro de auditoría</b> de accesos y acciones; control de acceso por rol.</p>
+          <p><b>Derechos.</b> Los titulares (o sus representantes) pueden ejercer los derechos de acceso, rectificación, cancelación y oposición ante el establecimiento responsable del tratamiento.</p>
+          <p><b>Responsable.</b> El establecimiento educacional que utiliza la plataforma es el responsable del tratamiento de los datos.</p>
+          <p style={{ color: C.textSoft }} className="text-[11px] mt-1">Documento borrador. Debe ser revisado y adaptado legalmente por cada establecimiento antes de su publicación oficial.</p>
+        </div>
+        <div className="mt-4 flex justify-end"><Btn onClick={onClose}>Entendido</Btn></div>
       </div>
     </div>
   );
@@ -2350,27 +2381,50 @@ function RedesPage({ institutions }) {
   );
 }
 
+const AUDIT_LABELS = {
+  login: "Inicio de sesión", "user.activate": "Activación de cuenta",
+  "user.invite": "Invitación de usuario", "user.edit": "Edición de usuario", "user.delete": "Eliminación de usuario",
+  "user.2fa_enable": "Activó 2FA", "user.2fa_disable": "Desactivó 2FA",
+  "case.create": "Creó caso", "case.close": "Cerró caso", "case.delete": "Eliminó caso",
+  "student.create": "Creó expediente", "student.delete": "Eliminó expediente",
+};
+
 function AuditPanel({ cases }) {
+  const [logs, setLogs] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.listAudit(300).then(setLogs).catch((e) => setError((e && (e.error || e.message)) || "No se pudo cargar la auditoría."));
+  }, []);
+
+  const overdue = cases.filter((c) => !c.closed && daysLeft((c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1] || {}).due) < 0);
+
   return (
     <div>
-      <PageHead title="Panel de auditoría" subtitle="Vista de solo lectura: estado de plazos y cumplimiento de todos los casos." right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "auditoria.json")} />} />
-      <div className="flex flex-col gap-3">
-        {cases.map((c) => {
-          const step = c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1];
-          const dl = daysLeft(step.due);
-          const overdue = dl < 0;
-          return (
-            <div key={c.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderLeft: `3px solid ${caseColor(c.typeKey)}` }} className="rounded-lg p-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2.5"><span style={{ background: caseColor(c.typeKey) }} className="w-2 h-2 rounded-full shrink-0" /><span style={{ ...mono, color: C.textSoft }} className="text-xs">{c.id}</span><span style={{ color: C.ink }} className="text-sm ml-1">{c.type.label}</span></div>
-                {c.closed ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Cerrado</span> : <StatusPill dl={dl} />}
-              </div>
-              <div style={{ color: C.textSoft }} className="text-xs mt-2">Etapa actual: {step.title} · Responsable: {step.role}</div>
-              {overdue && <div style={{ color: C.urgent }} className="text-xs mt-2 flex items-center gap-1.5"><AlertTriangle size={12} /> Excede el plazo máximo de la normativa vigente.</div>}
+      <PageHead title="Auditoría y trazabilidad" subtitle="Registro de acciones sobre datos sensibles (Ley 21.719): quién hizo qué y cuándo. Solo lectura." right={<Toolbar onPrint={printView} onExport={() => logs && exportJSON(logs, "auditoria.json")} />} />
+
+      {overdue.length > 0 && (
+        <div style={{ background: C.urgent + "12", border: `1px solid ${C.urgent}` }} className="rounded-lg p-3 mb-4 text-xs" >
+          <span style={{ color: C.urgent }} className="font-medium flex items-center gap-1.5"><AlertTriangle size={13} /> {overdue.length} caso(s) exceden el plazo normativo</span>
+          <span style={{ color: C.textSoft }}>{overdue.map((c) => c.id).join(", ")}</span>
+        </div>
+      )}
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Registro de actividad</div>
+      {error && <div style={{ color: C.urgent }} className="text-sm">{error}</div>}
+      {!logs && !error && <div style={{ color: C.textSoft }} className="text-sm">Cargando…</div>}
+      {logs && logs.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">Sin eventos registrados aún.</div>}
+      {logs && logs.length > 0 && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-hidden">
+          {logs.map((e, i) => (
+            <div key={e.id} className="flex items-center gap-3 px-4 py-2.5 text-xs" style={{ borderTop: i ? `1px solid ${C.cardBorder}` : "none" }}>
+              <span style={{ ...mono, color: C.textSoft }} className="shrink-0 w-32">{new Date(e.at).toLocaleString("es-CL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+              <span style={{ color: C.ink }} className="font-medium shrink-0 w-44">{AUDIT_LABELS[e.action] || e.action}</span>
+              <span style={{ color: C.textSoft }} className="flex-1 truncate">{e.userName || "—"}{e.detail ? ` · ${e.detail}` : ""}</span>
+              {e.userRole && <span style={{ background: C.appBg, color: C.textSoft }} className="text-[10px] px-2 py-0.5 rounded-full shrink-0">{ROLES[e.userRole]?.label || e.userRole}</span>}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
