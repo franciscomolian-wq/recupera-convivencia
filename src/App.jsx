@@ -2485,6 +2485,16 @@ function PerfilesPage({ roleKey }) {
     catch (err) { setError((err && (err.error || err.message)) || "No se pudo eliminar."); }
   }
 
+  const [editing, setEditing] = useState(null); // { id, name, email, role }
+  async function guardarEdicion() {
+    if (!editing) return;
+    try {
+      const upd = await api.updateUser(editing.id, { name: editing.name, email: editing.email, role: editing.role });
+      setUsers((prev) => prev.map((x) => (x.id === upd.id ? upd : x)));
+      setEditing(null);
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo guardar."); }
+  }
+
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
   if (!canManage) {
@@ -2543,12 +2553,31 @@ function PerfilesPage({ roleKey }) {
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setEditing({ id: u.id, name: u.name, email: u.email || "", role: u.role })} title="Editar usuario" style={{ color: C.primary }}><PenLine size={14} /></button>
+                    <button onClick={() => borrar(u)} title="Eliminar usuario" style={{ color: C.textSoft }}><Trash2 size={14} /></button>
+                  </div>
                   {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline">Reenviar</button>}
-                  <button onClick={() => borrar(u)} title="Eliminar usuario" style={{ color: C.textSoft }}><Trash2 size={14} /></button>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={() => setEditing(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-6 w-full max-w-md shadow-lg">
+            <div className="flex items-center gap-2.5 mb-4"><PenLine size={17} style={{ color: C.primary }} /><div style={{ ...serif, color: C.ink }} className="text-base flex-1">Editar usuario</div><button onClick={() => setEditing(null)} style={{ color: C.textSoft }}><X size={16} /></button></div>
+            <div className="flex flex-col gap-3">
+              <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Nombre completo" className="rounded-md p-2.5 text-sm" style={inp} />
+              <input value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} placeholder="Correo" className="rounded-md p-2.5 text-sm" style={inp} />
+              <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+                {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <div className="flex justify-end gap-2"><button onClick={() => setEditing(null)} className="text-sm px-4 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button><Btn onClick={guardarEdicion}>Guardar</Btn></div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -2900,8 +2929,11 @@ function AdminBroadcast({ establishments, notifications, setNotifications }) {
   const [sent, setSent] = useState(false);
   function send() {
     if (!title.trim()) return;
-    const alcance = target === "todos" ? "Todos los establecimientos" : establishments.find((e) => e.id === target)?.name;
-    setNotifications([{ id: `n${Date.now()}`, from: "Súper Administrador", title, body: `${body}${body ? " " : ""}(${alcance})`, at: new Date().toISOString().slice(0, 10), read: false }, ...notifications]);
+    const at = new Date().toISOString().slice(0, 10);
+    const data = { from: "Súper Administrador", fromRole: "Administración Central", to: "todos", subject: title, body, at, read: false };
+    // Persiste como comunicación: global (todos) o dirigida a un establecimiento.
+    api.addOrgRecord("message", data, target === "todos" ? { global: true } : { establishmentId: target })
+      .catch((e) => console.error("difusion", e));
     setTitle(""); setBody(""); setSent(true); setTimeout(() => setSent(false), 2500);
   }
   return (

@@ -49,6 +49,7 @@ export const api = {
   listUsers: () => request("/api/users", { auth: true }),
   inviteUser: (payload) => request("/api/users/invite", { method: "POST", body: payload, auth: true }),
   reinviteUser: (id) => request(`/api/users/${id}/reinvite`, { method: "POST", auth: true }),
+  updateUser: (id, patch) => request(`/api/users/${id}`, { method: "PATCH", body: patch, auth: true }),
 
   // --- Casos ---
   listCases: () => request("/api/cases", { auth: true }),
@@ -100,7 +101,10 @@ export const api = {
 
   // --- Registros a nivel establecimiento (mensajes, agenda, gestiones, documental, PME) ---
   listOrgRecords: () => request("/api/org/records", { auth: true }),
-  addOrgRecord: (kind, data, global) => request("/api/org/records", { method: "POST", body: { kind, data, global }, auth: true }),
+  addOrgRecord: (kind, data, opts = {}) => {
+    const o = typeof opts === "boolean" ? { global: opts } : opts;
+    return request("/api/org/records", { method: "POST", body: { kind, data, global: o.global, establishmentId: o.establishmentId }, auth: true });
+  },
   updateOrgRecord: (id, data) => request(`/api/org/records/${id}`, { method: "PATCH", body: { data }, auth: true }),
   deleteOrgRecord: (id) => request(`/api/org/records/${id}`, { method: "DELETE", auth: true }),
 };
