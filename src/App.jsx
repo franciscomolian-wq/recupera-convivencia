@@ -2397,7 +2397,7 @@ function PerfilesPage({ roleKey }) {
     setError(""); setSaving(true); setInvite(null); setCopied(false);
     try {
       const res = await api.inviteUser(form);
-      setInvite({ url: res.inviteUrl, name: form.name });
+      setInvite({ url: res.inviteUrl, name: form.name, email: form.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured });
       setForm({ name: "", rut: "", role: "profesorJefe", email: "" });
       reload();
     } catch (err) {
@@ -2410,7 +2410,7 @@ function PerfilesPage({ roleKey }) {
   }
 
   async function reinvitar(u) {
-    try { const res = await api.reinviteUser(u.id); setInvite({ url: res.inviteUrl, name: u.name }); setCopied(false); } catch (err) { setError((err && (err.error || err.message)) || "No se pudo regenerar."); }
+    try { const res = await api.reinviteUser(u.id); setInvite({ url: res.inviteUrl, name: u.name, email: u.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured }); setCopied(false); } catch (err) { setError((err && (err.error || err.message)) || "No se pudo regenerar."); }
   }
 
   async function borrar(u) {
@@ -2445,7 +2445,15 @@ function PerfilesPage({ roleKey }) {
         {invite && (
           <div style={{ background: "#E8F0FE", border: `1px solid ${C.sidebarActiveBorder}` }} className="rounded-lg p-3 mt-4">
             <div style={{ color: C.ink }} className="text-sm font-medium mb-1">Enlace de invitación para {invite.name}</div>
-            <div style={{ color: C.textSoft }} className="text-[11px] mb-2">Válido 7 días. Compártelo con la persona (correo, WhatsApp, etc.). Al abrirlo, definirá su contraseña.</div>
+            {invite.emailSent ? (
+              <div style={{ color: C.ok }} className="text-xs mb-2 flex items-center gap-1.5"><CheckCircle2 size={13} /> Correo enviado a <b>{invite.email}</b>. También puedes compartir el enlace directamente:</div>
+            ) : (
+              <div style={{ color: C.textSoft }} className="text-[11px] mb-2">
+                {invite.mailerConfigured === false
+                  ? "El envío automático de correos aún no está configurado. Copia el enlace y compártelo (correo, WhatsApp, etc.)."
+                  : "Válido 7 días. Compártelo con la persona. Al abrirlo, definirá su contraseña."}
+              </div>
+            )}
             <div className="flex items-center gap-2 flex-wrap">
               <input readOnly value={invite.url} className="rounded-md p-2 text-xs flex-1 min-w-[220px]" style={{ ...inp, ...mono }} onFocus={(e) => e.target.select()} />
               <Btn variant="ghost" onClick={() => copiar(invite.url)}><ExternalLink size={14} /> {copied ? "¡Copiado!" : "Copiar enlace"}</Btn>
