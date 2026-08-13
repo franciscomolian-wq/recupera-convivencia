@@ -249,6 +249,7 @@ export default function App() {
   const [documents, setDocuments] = useState([]);
   const [acciones, setAcciones] = useState([]);
   const [protocols, setProtocols] = useState([]);
+  const [permset, setPermset] = useState(null);
 
   // Restaura la sesión si hay un token guardado (recarga de página).
   useEffect(() => {
@@ -279,13 +280,15 @@ export default function App() {
         setDocuments(by("document"));
         setAcciones(by("accion"));
         setProtocols(by("protocol"));
+        const ps = by("permset");
+        setPermset(ps[0] || null);
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -297,7 +300,7 @@ export default function App() {
     institutions, setInstitutions, establishments, setEstablishments,
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
-    documents, setDocuments, acciones, setAcciones, protocols, setProtocols,
+    documents, setDocuments, acciones, setAcciones, protocols, setProtocols, permset, setPermset,
   };
 
   const role = ROLES[session.role];
@@ -710,32 +713,40 @@ function Modal({ title, children, onClose }) {
 }
 
 /* ---------------------- CAMPANA DE NOTIFICACIONES ----------------- */
-function NotificationBell({ notifications, setNotifications }) {
+function NotificationBell({ items, onOpen }) {
   const [open, setOpen] = useState(false);
-  const unread = notifications.filter((n) => !n.read).length;
+  const list = (items || []).slice(0, 15);
+  const abrir = () => { setOpen(false); if (onOpen) onOpen(); };
   return (
     <div className="relative print:hidden">
       <button onClick={() => setOpen(!open)} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="w-9 h-9 rounded-lg flex items-center justify-center relative">
         <Bell size={17} color={C.ink} />
-        {unread > 0 && <span style={{ background: C.urgent }} className="absolute -top-1 -right-1 text-[10px] text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{unread}</span>}
+        {list.length > 0 && <span style={{ background: C.urgent }} className="absolute -top-1 -right-1 text-[10px] text-white rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">{list.length}</span>}
       </button>
       {open && (
-        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="absolute right-0 mt-2 w-80 rounded-xl shadow-xl z-40 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
-            <span style={{ color: C.ink }} className="text-sm font-medium">Notificaciones</span>
-            <button onClick={() => setNotifications((p) => p.map((n) => ({ ...n, read: true })))} style={{ color: C.seal }} className="text-xs">Marcar leídas</button>
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="absolute right-0 mt-2 w-80 rounded-xl shadow-xl z-40 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+              <span style={{ color: C.ink }} className="text-sm font-medium">Notificaciones</span>
+              {onOpen && <button onClick={abrir} style={{ color: C.seal }} className="text-xs">Ver todas →</button>}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {list.length === 0 && <div style={{ color: C.textSoft }} className="p-4 text-sm">Sin notificaciones.</div>}
+              {list.map((n) => (
+                <button key={n.id} onClick={abrir} className="w-full text-left px-4 py-3 hover:bg-black/[0.03] transition" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+                  <div style={{ color: C.textSoft }} className="text-[10px] uppercase tracking-wide">{n.from} · {n.at}</div>
+                  <div style={{ color: C.ink }} className="text-sm font-medium mt-0.5">{n.title}</div>
+                  {n.body && <div style={{ color: C.textSoft }} className="text-xs mt-0.5 line-clamp-2">{n.body}</div>}
+                  <div style={{ color: C.primary }} className="text-[11px] mt-1 flex items-center gap-1">Ver en Comunicación interna <ChevronRight size={12} /></div>
+                </button>
+              ))}
+            </div>
+            {list.length > 0 && onOpen && (
+              <button onClick={abrir} className="w-full text-center py-2.5 text-xs" style={{ color: C.primary, borderTop: `1px solid ${C.cardBorder}` }}>Ver todas las comunicaciones →</button>
+            )}
           </div>
-          <div className="max-h-80 overflow-y-auto">
-            {notifications.length === 0 && <div style={{ color: C.textSoft }} className="p-4 text-sm">Sin notificaciones.</div>}
-            {notifications.map((n) => (
-              <div key={n.id} className="px-4 py-3" style={{ borderBottom: `1px solid ${C.cardBorder}`, background: n.read ? "transparent" : C.paper }}>
-                <div style={{ color: C.textSoft }} className="text-[10px] uppercase tracking-wide">{n.from} · {n.at}</div>
-                <div style={{ color: C.ink }} className="text-sm font-medium mt-0.5">{n.title}</div>
-                <div style={{ color: C.textSoft }} className="text-xs mt-0.5">{n.body}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -771,6 +782,7 @@ const PORTAL_NAV = {
   redes: { label: "Redes de derivación", icon: Network },
   auditoria: { label: "Panel de auditoría", icon: ClipboardCheck },
   perfiles: { label: "Usuarios y accesos", icon: Users },
+  permisos: { label: "Permisos por rol", icon: Lock },
   configuracion: { label: "Configuración", icon: Settings },
   micaso: { label: "Mi caso", icon: FolderOpen },
 };
@@ -782,9 +794,75 @@ const NAV_GROUPS = [
   { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
   { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
   { label: "Análisis y planificación", color: "#1A73E8", keys: ["reportes", "planpme"] },
-  { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "protocolos", "auditoria", "perfiles", "configuracion"] },
+  { label: "Referencia y cuenta", color: "#5F6368", keys: ["normativa", "protocolos", "auditoria", "perfiles", "permisos", "configuracion"] },
 ];
 function initials(name) { return (name || "").split(" ").filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase(); }
+
+/* ===================== PERMISOS POR ROL (matriz configurable) =====================
+   Nivel por rol × módulo: "editar" | "ver" | "" (sin acceso).
+   Los valores por defecto reproducen el comportamiento actual por scope; cada
+   establecimiento puede sobreescribirlos. La ley/gestión sensible sigue acotada. */
+const PERM_MODULES = [
+  { k: "casos", label: "Casos de convivencia" },
+  { k: "expedientes", label: "Expedientes de estudiantes" },
+  { k: "inspectoria", label: "Inspectoría General" },
+  { k: "pie", label: "Integración PIE" },
+  { k: "apoderados", label: "Comunicación con apoderados" },
+  { k: "comunicacion", label: "Comunicación interna" },
+  { k: "agenda", label: "Agenda institucional" },
+  { k: "gestion", label: "Redes externas (gestiones)" },
+  { k: "documental", label: "Gestión documental" },
+  { k: "planpme", label: "Plan de convivencia / PME" },
+  { k: "reportes", label: "Reportes y estadísticas" },
+  { k: "alertas", label: "Alertas inteligentes" },
+  { k: "formatos", label: "Formatos y plantillas" },
+  { k: "normativa", label: "Motor normativo" },
+  { k: "redes", label: "Redes de derivación" },
+  { k: "protocolos", label: "Protocolos del establecimiento" },
+];
+const PERM_KEYS = new Set(PERM_MODULES.map((m) => m.k));
+const PERM_ROLES = ["coordinador", "director", "sostenedor", "superintendencia", "inspectoria", "pie", "orientacion", "utp", "profesorJefe", "docente", "asistente"];
+const AUDIT_KEYS = new Set(["alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "normativa", "redes"]);
+const LIMITED_KEYS = new Set(["casos", "expedientes", "pie", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa"]);
+
+function defaultLevel(roleKey, mk) {
+  const sc = ROLES[roleKey]?.scope;
+  if (sc === "admin") return "editar";
+  if (sc === "audit") return AUDIT_KEYS.has(mk) ? "ver" : "";
+  if (sc === "limited") return LIMITED_KEYS.has(mk) ? "editar" : "";
+  return "";
+}
+function effLevel(roleKey, mk, permset) {
+  const custom = permset && permset[roleKey];
+  if (custom && Object.prototype.hasOwnProperty.call(custom, mk)) return custom[mk];
+  return defaultLevel(roleKey, mk);
+}
+function navKeysFromPerms(roleKey, permset) {
+  const sc = ROLES[roleKey]?.scope;
+  if (sc === "family") return ["dashboard", "micaso", "normativa"];
+  const keys = ["dashboard"];
+  for (const m of PERM_MODULES) if (effLevel(roleKey, m.k, permset)) keys.push(m.k);
+  if (effLevel(roleKey, "casos", permset) === "editar") keys.push("nuevo");
+  if (sc === "admin" || sc === "audit") keys.push("auditoria");
+  if (["coordinador", "director"].includes(roleKey)) keys.push("perfiles", "permisos");
+  if (sc === "admin") keys.push("configuracion");
+  return keys;
+}
+function moduleForView(v) {
+  if (v === "nuevo" || v === "caso") return "casos";
+  if (v === "expediente") return "expedientes";
+  return v;
+}
+// Ajusta el "scope" del rol para la vista actual según el nivel de permiso (editar→admin, ver→audit).
+function roleForView(role, roleKey, view, permset) {
+  if (role.scope === "family" || role.scope === "superadmin") return role;
+  const m = moduleForView(view);
+  if (!PERM_KEYS.has(m)) return role;
+  const lvl = effLevel(roleKey, m, permset);
+  if (lvl === "editar") return { ...role, scope: "admin" };
+  if (lvl === "ver") return { ...role, scope: "audit" };
+  return role;
+}
 
 /* Color por tipo de institución (paleta extendida Google) */
 const INST_TYPE_COLORS = {
@@ -819,7 +897,7 @@ const DOC_CAT_COLOR = {
 function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
   const role = ROLES[session.role];
-  const navKeys = PORTAL_NAV_BY_SCOPE[role.scope];
+  const navKeys = navKeysFromPerms(session.role, props.permset);
   const { students, setStudents } = props;
   const [view, setView] = useState("dashboard");
   const [selectedCaseId, setSelectedCaseId] = useState(cases[0]?.id);
@@ -827,6 +905,10 @@ function PortalApp(props) {
   const selectedCase = cases.find((c) => c.id === selectedCaseId);
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
   const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
+  const pageRole = roleForView(role, session.role, view, props.permset);
+  const notifItems = (props.messages || [])
+    .filter((m) => m.to === "todos" || m.to === session.role || m.from === session.name)
+    .map((m) => ({ id: m.id, from: m.from, at: m.at, title: m.subject, body: m.body }));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sec2fa, setSec2fa] = useState(false);
   function go(v) { setView(v); setMobileOpen(false); }
@@ -865,29 +947,30 @@ function PortalApp(props) {
         <div className="lg:hidden flex items-center gap-3 px-4 h-14 shrink-0 sticky top-0 z-20 print:hidden" style={{ background: C.sidebarBg, borderBottom: `1px solid ${C.sidebarBorder}` }}>
           <button onClick={() => setMobileOpen(true)} style={{ color: C.ink }} aria-label="Abrir menú"><Menu size={22} /></button>
           <div style={{ ...serif, color: C.ink }} className="text-base">Recupera Convivencia</div>
-          <div className="ml-auto"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
+          <div className="ml-auto"><NotificationBell items={notifItems} onOpen={() => { if (navKeys.includes("comunicacion")) go("comunicacion"); }} /></div>
         </div>
       <main className="flex-1 p-6 sm:p-10 min-w-0">
-        <div className="hidden lg:flex justify-end mb-4"><NotificationBell notifications={notifications} setNotifications={setNotifications} /></div>
-        {view === "dashboard" && <Dashboard role={role} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
+        <div className="hidden lg:flex justify-end mb-4"><NotificationBell items={notifItems} onOpen={() => { if (navKeys.includes("comunicacion")) go("comunicacion"); }} /></div>
+        {view === "dashboard" && <Dashboard role={pageRole} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
         {view === "nuevo" && <CaseWizard students={students} protocols={props.protocols} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
-        {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={role} />}
-        {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={role} />}
+        {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={pageRole} />}
+        {view === "permisos" && <PermissionsPage permset={props.permset} setPermset={props.setPermset} roleKey={session.role} />}
+        {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={pageRole} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
-        {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
-        {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={role} />}
-        {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={role} />}
-        {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={role} />}
-        {view === "comunicacion" && <MessagesPage messages={props.messages} setMessages={props.setMessages} session={session} role={role} />}
-        {view === "apoderados" && <ApoderadosPage students={students} setStudents={setStudents} role={role} />}
-        {view === "documental" && <DocumentalPage documents={props.documents} setDocuments={props.setDocuments} cases={cases} role={role} />}
-        {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={role} />}
+        {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
+        {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
+        {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={pageRole} />}
+        {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={pageRole} />}
+        {view === "comunicacion" && <MessagesPage messages={props.messages} setMessages={props.setMessages} session={session} role={pageRole} />}
+        {view === "apoderados" && <ApoderadosPage students={students} setStudents={setStudents} role={pageRole} />}
+        {view === "documental" && <DocumentalPage documents={props.documents} setDocuments={props.setDocuments} cases={cases} role={pageRole} />}
+        {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={pageRole} />}
         {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
-        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
+        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={pageRole} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
-        {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={role} />}
+        {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={pageRole} />}
         {view === "formatos" && <FormatosPage />}
-        {view === "normativa" && <NormativaPage docs={props.docs} setDocs={props.setDocs} role={role} />}
+        {view === "normativa" && <NormativaPage docs={props.docs} setDocs={props.setDocs} role={pageRole} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
         {view === "auditoria" && <AuditPanel cases={cases} />}
         {view === "perfiles" && <PerfilesPage roleKey={session.role} />}
@@ -2619,6 +2702,88 @@ function RedesPage({ institutions }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PermissionsPage({ permset, setPermset, roleKey }) {
+  const canEdit = ["coordinador", "director", "superadmin"].includes(roleKey);
+  const [selRole, setSelRole] = useState(PERM_ROLES[0]);
+  const [levels, setLevels] = useState({});
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const l = {};
+    for (const m of PERM_MODULES) l[m.k] = effLevel(selRole, m.k, permset);
+    setLevels(l); setSaved(false);
+  }, [selRole, permset]);
+
+  const esPropio = !!(permset && permset[selRole]);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  async function guardar() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const cur = permset ? { ...permset } : {};
+      const id = cur.id; delete cur.id;
+      cur[selRole] = { ...levels };
+      if (id) { await api.updateOrgRecord(id, cur); setPermset({ id, ...cur }); }
+      else { const r = await api.addOrgRecord("permset", cur); setPermset({ id: r.id, ...(r.data || {}) }); }
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } catch (e) { console.error("guardar permisos", e); }
+    finally { setSaving(false); }
+  }
+  function restablecer() {
+    const l = {};
+    for (const m of PERM_MODULES) l[m.k] = defaultLevel(selRole, m.k);
+    setLevels(l);
+  }
+
+  const LEVEL_OPTS = [["", "Sin acceso"], ["ver", "Ver (solo lectura)"], ["editar", "Editar (acceso total)"]];
+
+  if (!canEdit) {
+    return <div><PageHead title="Permisos por rol" subtitle="Configuración de accesos por perfil." /><div style={{ color: C.textSoft }} className="text-sm">Tu perfil no puede configurar permisos.</div></div>;
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Permisos por rol" subtitle="Define qué puede ver y hacer cada perfil en tu establecimiento. Los cambios aplican a todos los usuarios de ese rol." right={<Toolbar onPrint={printView} />} />
+
+      <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-lg p-3 text-xs mb-4 leading-relaxed">
+        Elige un rol y ajusta cada módulo: <b>Sin acceso</b> (no aparece en su menú), <b>Ver</b> (solo lectura) o <b>Editar</b> (puede crear y modificar). La gestión de usuarios, permisos y configuración queda reservada a Coordinación y Dirección.
+      </div>
+
+      <div className="mb-4">
+        <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Perfil / rol</label>
+        <select value={selRole} onChange={(e) => setSelRole(e.target.value)} className="mt-1.5 w-full max-w-sm rounded-md p-2.5 text-sm" style={inp}>
+          {PERM_ROLES.map((rk) => <option key={rk} value={rk}>{ROLES[rk]?.label || rk}</option>)}
+        </select>
+        <div className="mt-1.5">
+          {esPropio
+            ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Permisos personalizados</span>
+            : <span style={{ background: C.textSoft + "22", color: C.textSoft }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">Usando valores por defecto</span>}
+        </div>
+      </div>
+
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg overflow-hidden">
+        {PERM_MODULES.map((m, i) => (
+          <div key={m.k} className="flex items-center gap-3 px-4 py-2.5" style={{ borderTop: i ? `1px solid ${C.cardBorder}` : "none" }}>
+            <span style={{ color: C.ink }} className="text-sm flex-1">{m.label}</span>
+            <select value={levels[m.k] ?? ""} onChange={(e) => setLevels({ ...levels, [m.k]: e.target.value })} className="rounded-md p-1.5 text-sm shrink-0" style={{ ...inp, minWidth: 170 }}>
+              {LEVEL_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <Btn onClick={guardar} disabled={saving}><CheckCircle2 size={15} /> {saving ? "Guardando…" : "Guardar permisos"}</Btn>
+        <button onClick={restablecer} style={{ color: C.textSoft }} className="text-xs underline">Restablecer valores por defecto</button>
+        {saved && <span style={{ color: C.ok }} className="text-sm flex items-center gap-1"><CheckCircle2 size={15} /> Guardado</span>}
+      </div>
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-3">Nota: el resguardo de datos por establecimiento y las acciones sensibles se mantienen protegidos en el servidor, independiente de esta configuración.</p>
     </div>
   );
 }
