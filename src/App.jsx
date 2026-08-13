@@ -3198,7 +3198,7 @@ function AdminEstablishments({ establishments }) {
       <div className="flex flex-col gap-2">
         {establishments.map((e) => (
           <div key={e.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
-            <div><div style={{ color: C.ink }} className="text-sm font-medium">{e.name}</div><div style={{ color: C.textSoft }} className="text-xs">{e.comuna} · {LEVELS[e.type]} · {e.sostenedor}</div></div>
+            <div><div style={{ color: C.ink }} className="text-sm font-medium">{e.name}</div><div style={{ color: C.textSoft }} className="text-xs">{e.rbd ? `RBD ${e.rbd} · ` : ""}{e.comuna ? `${e.comuna} · ` : ""}{LEVELS[e.type]}{e.sostenedor ? ` · ${e.sostenedor}` : ""}</div></div>
             <div className="flex items-center gap-4 text-xs">
               <span style={{ color: C.textSoft }}>Activos: <b style={{ color: C.ink }}>{e.activos}</b></span>
               <span style={{ color: C.textSoft }}>Vencidos: <b style={{ color: C.urgent }}>{e.vencidos}</b></span>
@@ -3373,24 +3373,29 @@ function AdminSystem() {
 
 function AdminConfig({ establishments, setEstablishments }) {
   const [name, setName] = useState("");
+  const [rbd, setRbd] = useState("");
   const [comuna, setComuna] = useState("");
   const [type, setType] = useState("basica");
+  const inpS = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   return (
     <div className="max-w-2xl">
       <PageHead title="Configuración" subtitle="Alta de establecimientos en la plataforma." />
       <Section icon={Building2} title="Registrar establecimiento">
         <div className="flex flex-col gap-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
-          <input value={comuna} onChange={(e) => setComuna(e.target.value)} placeholder="Comuna" className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
-          <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del establecimiento" className="rounded-md p-2.5 text-sm" style={inpS} />
+          <div className="grid grid-cols-2 gap-3">
+            <input value={rbd} onChange={(e) => setRbd(e.target.value)} placeholder="RBD (ej: 10251-2)" className="rounded-md p-2.5 text-sm" style={inpS} />
+            <input value={comuna} onChange={(e) => setComuna(e.target.value)} placeholder="Comuna" className="rounded-md p-2.5 text-sm" style={inpS} />
+          </div>
+          <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-md p-2.5 text-sm" style={inpS}>
             {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           <div><Btn accent={C.admin} onClick={async () => {
             if (!name.trim()) return;
             try {
-              const e = await api.createEstablishment({ name, comuna, type });
+              const e = await api.createEstablishment({ name, rbd, comuna, type });
               setEstablishments([...establishments, { ...e, activos: 0, vencidos: 0, cumplimiento: e.cumplimiento ?? 100 }]);
-              setName(""); setComuna("");
+              setName(""); setRbd(""); setComuna("");
             } catch (err) { alert((err && (err.error || err.message)) || "No se pudo registrar."); }
           }}><Plus size={15} /> Registrar</Btn></div>
         </div>
