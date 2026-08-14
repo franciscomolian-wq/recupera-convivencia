@@ -2416,8 +2416,21 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
   const [f, setF] = useState({ fechaHecho: "", hora: "", lugar: "", curso: "", testigos: "", adultosRef: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [stuQuery, setStuQuery] = useState("");
+  const [stuOpen, setStuOpen] = useState(false);
   const chosenKey = mode === "predef" ? typeKey : analysis?.best?.key;
   const setField = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
+
+  const stuQ = stuQuery.trim().toLowerCase();
+  const stuMatches = (stuQ
+    ? students.filter((s) => `${s.name} ${s.curso || ""} ${s.rut || ""}`.toLowerCase().includes(stuQ))
+    : students
+  ).slice(0, 40);
+  function pickStudent(s) {
+    setStudentId(s.id); setInvolved(s.name); setField("curso", s.curso || "");
+    setStuQuery(`${s.name}${s.curso ? " · " + s.curso : ""}`); setStuOpen(false);
+  }
+  function clearStudent() { setStudentId(""); setStuQuery(""); setStuOpen(false); }
 
   async function create() {
     if (!chosenKey || saving) return;
@@ -2482,11 +2495,35 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
         )}
         <div>
           <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Expediente del estudiante</label>
-          <select value={studentId} onChange={(e) => { const v = e.target.value; setStudentId(v); const s = students.find((x) => x.id === v); if (s) { setInvolved(s.name); setField("curso", s.curso); } }}
-            className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
-            <option value="">➕ Nuevo estudiante (se crea con los datos de abajo)</option>
-            {students.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.curso}</option>)}
-          </select>
+          <div className="relative mt-1.5">
+            <input
+              value={stuQuery}
+              onChange={(e) => { setStuQuery(e.target.value); if (studentId) setStudentId(""); setStuOpen(true); }}
+              onFocus={() => setStuOpen(true)}
+              onBlur={() => setTimeout(() => setStuOpen(false), 150)}
+              placeholder="Busca por nombre, curso o RUT… (o déjalo vacío para crear uno nuevo)"
+              className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${studentId ? C.primary : C.cardBorder}`, color: C.text }} />
+            {studentId && (
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={clearStudent} title="Quitar selección"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded" style={{ color: C.textSoft }}><X size={15} /></button>
+            )}
+            {stuOpen && (
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-auto rounded-md shadow-lg" style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }}>
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={clearStudent}
+                  className="w-full text-left px-3 py-2 text-sm border-b hover:bg-gray-50" style={{ color: C.primary, borderColor: C.cardBorder }}>➕ Nuevo estudiante (se crea con los datos de abajo)</button>
+                {stuMatches.length === 0 ? (
+                  <div className="px-3 py-2 text-sm" style={{ color: C.textSoft }}>Sin coincidencias. Puedes crear uno nuevo con los datos de abajo.</div>
+                ) : stuMatches.map((s) => (
+                  <button key={s.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pickStudent(s)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2" style={{ color: C.ink }}>
+                    <span>{s.name}</span>
+                    <span className="text-xs shrink-0" style={{ color: C.textSoft }}>{s.curso || ""}{s.rut ? ` · ${s.rut}` : ""}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {students.length > 0 && <div className="text-[11px] mt-1" style={{ color: C.textSoft }}>{students.length} estudiante(s) en el repositorio.</div>}
         </div>
 
         <div>
