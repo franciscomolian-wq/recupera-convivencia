@@ -948,7 +948,7 @@ function effLevel(roleKey, mk, permset) {
 }
 function navKeysFromPerms(roleKey, permset) {
   const sc = ROLES[roleKey]?.scope;
-  if (sc === "family") return ["dashboard", "micaso", "normativa"];
+  if (sc === "family") return ["dashboard", "casos", "expedientes", "normativa"];
   const keys = ["dashboard"];
   for (const m of PERM_MODULES) if (effLevel(roleKey, m.k, permset)) keys.push(m.k);
   if (effLevel(roleKey, "casos", permset) === "editar") keys.push("nuevo");
@@ -1013,7 +1013,7 @@ function PortalApp(props) {
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id);
   const selectedCase = cases.find((c) => c.id === selectedCaseId);
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
-  const visibleCases = role.scope === "family" ? cases.filter((c) => c.id === "RC-2026-014") : cases;
+  const visibleCases = cases; // el backend ya acota los casos (el apoderado solo ve los de su pupilo/a)
   const pageRole = roleForView(role, session.role, view, props.permset);
   const notifItems = (props.messages || [])
     .filter((m) => m.to === "todos" || m.to === session.role || m.from === session.name)
