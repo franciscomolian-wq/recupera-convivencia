@@ -235,6 +235,8 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [inviteToken, setInviteToken] = useState(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null);
+  const [resetTok, setResetTok] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") : null);
   const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -293,6 +295,8 @@ export default function App() {
   if (booting) return <Splash />;
   if (!session && inviteToken)
     return <Activate token={inviteToken} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); }} />;
+  if (!session && resetTok)
+    return <ResetPassword token={resetTok} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); }} />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
@@ -333,6 +337,18 @@ function Login({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPriv, setShowPriv] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState("");
+
+  async function enviarRecuperacion(e) {
+    e.preventDefault();
+    setError(""); setForgotMsg(""); setLoading(true);
+    try {
+      const res = await api.forgotPassword(rut.trim());
+      setForgotMsg(res.message || "Si el RUT está registrado y tiene correo, te enviamos un enlace.");
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo procesar la solicitud."); }
+    finally { setLoading(false); }
+  }
 
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
@@ -369,7 +385,9 @@ function Login({ onLogin }) {
           </div>
         </div>
 
-        <form onSubmit={submit} className="flex flex-col gap-3">
+        {forgot && <p style={{ color: C.textSoft }} className="text-sm mb-3">Ingresa tu RUT y te enviaremos un enlace a tu correo para crear una nueva contraseña.</p>}
+
+        <form onSubmit={forgot ? enviarRecuperacion : submit} className="flex flex-col gap-3">
           <label className="block">
             <span style={{ color: C.textSoft }} className="text-xs font-medium">RUT</span>
             <div className="relative mt-1">
@@ -380,6 +398,7 @@ function Login({ onLogin }) {
             </div>
           </label>
 
+          {!forgot && (
           <label className="block">
             <span style={{ color: C.textSoft }} className="text-xs font-medium">Contraseña</span>
             <div className="relative mt-1">
@@ -389,6 +408,7 @@ function Login({ onLogin }) {
                 className="w-full rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none" style={inp} />
             </div>
           </label>
+          )}
 
           {needsCode && (
             <label className="block">
@@ -408,17 +428,34 @@ function Login({ onLogin }) {
               <AlertTriangle size={14} /> {error}
             </div>
           )}
+          {forgotMsg && (
+            <div style={{ background: "#E6F4EA", color: C.ok }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2">
+              <CheckCircle2 size={14} /> {forgotMsg}
+            </div>
+          )}
 
           <button type="submit" disabled={loading}
             className="mbtn mt-1 inline-flex items-center justify-center gap-2 text-sm px-4 py-2.5 rounded-full font-medium"
             style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
-            {loading ? "Ingresando…" : needsCode ? "Verificar e ingresar" : "Iniciar sesión"}
+            {loading ? "Procesando…" : forgot ? "Enviar enlace de recuperación" : needsCode ? "Verificar e ingresar" : "Iniciar sesión"}
           </button>
 
           {needsCode && (
             <button type="button" onClick={() => { setNeedsCode(false); setCode(""); setError(""); }}
               style={{ color: C.textSoft }} className="text-xs underline">
               ← Volver
+            </button>
+          )}
+          {!needsCode && !forgot && (
+            <button type="button" onClick={() => { setForgot(true); setError(""); setForgotMsg(""); }}
+              style={{ color: C.textSoft }} className="text-xs underline self-start">
+              ¿Olvidaste tu contraseña?
+            </button>
+          )}
+          {forgot && (
+            <button type="button" onClick={() => { setForgot(false); setError(""); setForgotMsg(""); }}
+              style={{ color: C.textSoft }} className="text-xs underline">
+              ← Volver al inicio de sesión
             </button>
           )}
         </form>
@@ -539,6 +576,78 @@ function Activate({ token, onDone, onCancel }) {
               {loading ? "Activando…" : "Activar e ingresar"}
             </button>
             <p style={{ color: C.textSoft }} className="text-[11px] text-center">Luego podrás activar la verificación en dos pasos desde el botón de seguridad.</p>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   RESTABLECER CONTRASEÑA — desde el enlace de recuperación
+   ---------------------------------------------------------------- */
+function ResetPassword({ token, onDone, onCancel }) {
+  const [info, setInfo] = useState(null);
+  const [invalid, setInvalid] = useState("");
+  const [pass, setPass] = useState("");
+  const [pass2, setPass2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  useEffect(() => {
+    api.resetInfo(token).then(setInfo).catch((err) => setInvalid((err && (err.error || err.message)) || "El enlace no es válido."));
+  }, [token]);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (pass.length < 8) return setError("La contraseña debe tener al menos 8 caracteres.");
+    if (pass !== pass2) return setError("Las contraseñas no coinciden.");
+    setLoading(true);
+    try {
+      const { user, token: jwt } = await api.resetPassword(token, pass);
+      setToken(jwt);
+      onDone(user);
+    } catch (err) { setError((err && (err.error || err.message)) || "No se pudo restablecer la contraseña."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center"><Lock size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Nueva contraseña</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Recupera Convivencia</div>
+          </div>
+        </div>
+        {invalid ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2"><AlertTriangle size={16} /> {invalid}</div>
+            <button onClick={onCancel} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff" }}>Ir al inicio de sesión</button>
+          </div>
+        ) : !info ? (
+          <div style={{ color: C.textSoft }} className="text-sm">Verificando el enlace…</div>
+        ) : (
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
+              <div style={{ color: C.ink }} className="font-medium">{info.name}</div>
+              <div style={{ color: C.textSoft }} className="text-xs">RUT {info.rut}</div>
+            </div>
+            <label className="block">
+              <span style={{ color: C.textSoft }} className="text-xs font-medium">Nueva contraseña</span>
+              <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" autoFocus className="mt-1 w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={inp} />
+            </label>
+            <label className="block">
+              <span style={{ color: C.textSoft }} className="text-xs font-medium">Repite la contraseña</span>
+              <input type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} placeholder="••••••••" className="mt-1 w-full rounded-lg px-3 py-2.5 text-sm outline-none" style={inp} />
+            </label>
+            {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
+            <button type="submit" disabled={loading} className="mbtn mt-1 text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
+              {loading ? "Guardando…" : "Cambiar contraseña e ingresar"}
+            </button>
           </form>
         )}
       </div>
