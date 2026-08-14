@@ -175,6 +175,30 @@ async function importCases(setCases, existing, rows) {
   return created.length;
 }
 
+/* Genera un PDF con formato (carga diferida de jsPDF). */
+async function exportReportPDF({ title, subtitle, indicadores, columns, rows, filename }) {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const doc = new jsPDF();
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFillColor(26, 115, 232); doc.rect(0, 0, W, 26, "F");
+  doc.setTextColor(255); doc.setFontSize(15); doc.text(title, 14, 13);
+  doc.setFontSize(9); doc.text("Recupera Convivencia · " + new Date().toLocaleDateString("es-CL"), 14, 20);
+  doc.setTextColor(60, 64, 67);
+  let y = 34;
+  if (subtitle) { doc.setFontSize(9); doc.text(doc.splitTextToSize(subtitle, W - 28), 14, y); y += 10; }
+  if (indicadores?.length) {
+    doc.setFontSize(11); doc.setTextColor(32, 33, 36); doc.text("Indicadores", 14, y);
+    autoTable(doc, { startY: y + 2, head: [["Indicador", "Valor"]], body: indicadores.map((i) => [i.label, String(i.value)]), theme: "grid", headStyles: { fillColor: [26, 115, 232] }, styles: { fontSize: 9 } });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+  if (columns && rows?.length) {
+    doc.setFontSize(11); doc.setTextColor(32, 33, 36); doc.text("Detalle", 14, y);
+    autoTable(doc, { startY: y + 2, head: [columns], body: rows, theme: "striped", headStyles: { fillColor: [30, 142, 62] }, styles: { fontSize: 8 } });
+  }
+  doc.save(filename || "reporte.pdf");
+}
+
 /* Extrae el texto de un PDF en el navegador (carga diferida de pdf.js). */
 async function extractPdfText(file) {
   const pdfjs = await import("pdfjs-dist");
@@ -188,6 +212,32 @@ async function extractPdfText(file) {
     const content = await page.getTextContent();
     text += content.items.map((it) => it.str).join(" ") + "\n";
   }
+  return text.trim();
+}
+
+/* OCR para PDF escaneados: renderiza cada página y la reconoce con Tesseract (español). */
+async function ocrPdf(file, onProgress) {
+  const pdfjs = await import("pdfjs-dist");
+  const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  const { createWorker } = await import("tesseract.js");
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data }).promise;
+  const nPages = Math.min(pdf.numPages, 15);
+  const tw = await createWorker("spa");
+  let text = "";
+  try {
+    for (let i = 1; i <= nPages; i++) {
+      onProgress && onProgress(`Reconociendo página ${i} de ${nPages}… (puede tardar)`);
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      const { data: { text: t } } = await tw.recognize(canvas);
+      text += t + "\n";
+    }
+  } finally { await tw.terminate(); }
   return text.trim();
 }
 
@@ -275,6 +325,7 @@ export default function App() {
         setCases(mappedCases);
         setStudents(ss.map(apiStudentToUI));
         if (Array.isArray(ests) && ests.length) setEstablishments(ests.map((e) => apiEstablishmentToUI(e, mappedCases)));
+        api.listInstitutions().then((ins) => { if (Array.isArray(ins) && ins.length) setInstitutions(ins); }).catch(() => {});
         const by = (k) => org.filter((r) => r.kind === k).map((r) => ({ id: r.id, ...(r.data || {}) }));
         setMessages(by("message"));
         setEvents(by("event"));
@@ -2232,8 +2283,18 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
     setRecoError(""); setRecoInfo(""); setPdfLoading(true);
     try {
       const text = await extractPdfText(file);
-      if (!text) setRecoError("No se pudo extraer texto del PDF (¿es un PDF escaneado/imagen?). Pega el texto manualmente.");
-      else { setManualText(text); setRecoInfo(`Texto extraído del PDF (${text.length.toLocaleString("es-CL")} caracteres). Revisa y presiona “Recomendar protocolo”.`); }
+      if (text && text.length > 30) {
+        setManualText(text);
+        setRecoInfo(`Texto extraído del PDF (${text.length.toLocaleString("es-CL")} caracteres). Revisa y presiona “Recomendar protocolo”.`);
+      } else if (window.confirm("El PDF no tiene texto seleccionable (parece escaneado). ¿Ejecutar OCR para reconocerlo? Puede tardar según la cantidad de páginas.")) {
+        const ocrText = await ocrPdf(file, (msg) => setRecoInfo(msg));
+        if (ocrText && ocrText.length > 10) {
+          setManualText(ocrText);
+          setRecoInfo(`Texto reconocido por OCR (${ocrText.length.toLocaleString("es-CL")} caracteres). Revísalo (el OCR puede tener errores) y presiona “Recomendar protocolo”.`);
+        } else setRecoError("No se pudo reconocer texto en el PDF.");
+      } else {
+        setRecoError("PDF sin texto. Pega el contenido del manual manualmente.");
+      }
     } catch (e) { console.error(e); setRecoError("No se pudo leer el PDF. Prueba pegando el texto."); }
     finally { setPdfLoading(false); }
   }
@@ -2631,7 +2692,14 @@ function ReportsPage({ cases, setCases, students = [] }) {
         </select>
         <Btn variant="ghost" onClick={() => exportCSV(rows.map((r) => ({ ID: r.c.id, Tipo: r.c.type.label, Nivel: LEVELS[r.c.level] || "", Etapa: r.step.title, Estado: r.estado, DiasRestantes: r.dl })), "reporte-casos.csv")}><Download size={15} /> Exportar CSV</Btn>
         <Btn variant="ghost" onClick={() => exportExcel(rows.map((r) => ({ ID: r.c.id, Tipo: r.c.type.label, Nivel: LEVELS[r.c.level] || "", Curso: r.c.curso || "", Etapa: r.step.title, Estado: r.estado })), "reporte-casos.xls", "Reporte de casos — Recupera Convivencia")}><Download size={15} /> Exportar Excel</Btn>
-        <Btn variant="ghost" onClick={printView}><Printer size={15} /> Exportar PDF</Btn>
+        <Btn variant="ghost" onClick={() => exportReportPDF({
+          title: "Reporte de convivencia escolar",
+          subtitle: "Reporte generado desde la plataforma Recupera Convivencia. Incluye indicadores y el detalle de casos según los filtros aplicados.",
+          indicadores,
+          columns: ["ID", "Tipo", "Nivel", "Curso", "Etapa actual", "Estado"],
+          rows: rows.map((r) => [r.c.id, r.c.type.label, LEVELS[r.c.level] || "", r.c.curso || "—", r.step.title, r.estado]),
+          filename: "reporte-convivencia.pdf",
+        })}><Download size={15} /> Descargar PDF</Btn>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-6">
         <StatCard label="Casos (filtrados)" value={rows.length} color={C.ink} />
@@ -3486,14 +3554,44 @@ function AdminEstablishments({ establishments }) {
 }
 
 function AdminInstitutions({ institutions, setInstitutions }) {
+  const [nueva, setNueva] = useState({ label: "", type: "protección", email: "" });
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const setLocal = (id, patch) => setInstitutions(institutions.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
+  async function agregar() {
+    if (!nueva.label.trim()) return;
+    try { const it = await api.createInstitution(nueva); setInstitutions([...institutions, it]); setNueva({ label: "", type: "protección", email: "" }); }
+    catch (e) { alert((e && (e.error || e.message)) || "No se pudo agregar."); }
+  }
+  async function borrar(id) {
+    if (!window.confirm("¿Eliminar esta institución del directorio?")) return;
+    try { await api.deleteInstitution(id); setInstitutions(institutions.filter((x) => x.id !== id)); }
+    catch (e) { alert((e && (e.error || e.message)) || "No se pudo eliminar."); }
+  }
+  const guardarEmail = (id, email) => api.updateInstitution(id, { email }).catch((e) => console.error("inst", e));
+
   return (
-    <div>
-      <PageHead title="Instituciones de derivación" subtitle="Directorio global. Los correos se usan como sugerencia al derivar." right={<Toolbar onPrint={printView} onExport={() => exportJSON(institutions, "instituciones.json")} onImport={(d) => Array.isArray(d) && setInstitutions(d)} />} />
+    <div className="max-w-2xl">
+      <PageHead title="Instituciones de derivación" subtitle="Directorio global. Los correos se usan como sugerencia al derivar. Se guardan en la base de datos." right={<Toolbar onPrint={printView} onExport={() => exportJSON(institutions, "instituciones.json")} />} />
+
+      <Section icon={Network} title="Agregar institución">
+        <div className="grid sm:grid-cols-2 gap-2">
+          <input value={nueva.label} onChange={(e) => setNueva({ ...nueva, label: e.target.value })} placeholder="Nombre de la institución" className="rounded-md p-2.5 text-sm" style={inp} />
+          <select value={nueva.type} onChange={(e) => setNueva({ ...nueva, type: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+            {Object.keys(INST_TYPE_COLORS).map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input value={nueva.email} onChange={(e) => setNueva({ ...nueva, email: e.target.value })} placeholder="correo@institucion.cl (opcional)" className="rounded-md p-2.5 text-sm sm:col-span-2" style={inp} />
+        </div>
+        <div className="mt-3"><Btn accent={C.admin} onClick={agregar}><Plus size={15} /> Agregar</Btn></div>
+      </Section>
+
       <div className="flex flex-col gap-2">
-        {institutions.map((i, idx) => (
+        {institutions.map((i) => (
           <div key={i.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center gap-3 flex-wrap">
-            <div className="flex-1 min-w-[180px]"><div style={{ color: C.ink }} className="text-sm font-medium">{i.label}</div><div style={{ color: C.textSoft }} className="text-xs">{i.type}</div></div>
-            <input value={i.email} onChange={(e) => setInstitutions(institutions.map((x, k) => (k === idx ? { ...x, email: e.target.value } : x)))} placeholder="correo@institucion.cl" className="rounded-md p-2 text-sm min-w-[220px]" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <span style={{ background: (INST_TYPE_COLORS[i.type] || "#5F6368") }} className="w-2.5 h-2.5 rounded-full shrink-0" />
+            <div className="flex-1 min-w-[160px]"><div style={{ color: C.ink }} className="text-sm font-medium">{i.label}</div><div style={{ color: C.textSoft }} className="text-xs">{i.type}</div></div>
+            <input value={i.email || ""} onChange={(e) => setLocal(i.id, { email: e.target.value })} onBlur={(e) => guardarEmail(i.id, e.target.value)} placeholder="correo@institucion.cl" className="rounded-md p-2 text-sm min-w-[200px]" style={inp} />
+            <button onClick={() => borrar(i.id)} title="Eliminar" style={{ color: C.textSoft }}><Trash2 size={15} /></button>
           </div>
         ))}
       </div>

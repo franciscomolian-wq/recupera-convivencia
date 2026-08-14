@@ -93,6 +93,12 @@ export const api = {
   createEstablishment: (e) => request("/api/establishments", { method: "POST", body: e, auth: true }),
   updateEstablishment: (id, e) => request(`/api/establishments/${id}`, { method: "PATCH", body: e, auth: true }),
 
+  // --- Instituciones de derivación ---
+  listInstitutions: () => request("/api/institutions", { auth: true }),
+  createInstitution: (i) => request("/api/institutions", { method: "POST", body: i, auth: true }),
+  updateInstitution: (id, i) => request(`/api/institutions/${id}`, { method: "PATCH", body: i, auth: true }),
+  deleteInstitution: (id) => request(`/api/institutions/${id}`, { method: "DELETE", auth: true }),
+
   // --- Administración: estado del sistema y respaldo ---
   adminStatus: () => request("/api/admin/status", { auth: true }),
   downloadBackup: async () => {
