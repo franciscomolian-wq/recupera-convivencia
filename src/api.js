@@ -66,6 +66,7 @@ export const api = {
   listStudents: () => request("/api/students", { auth: true }),
   getStudent: (id) => request(`/api/students/${id}`, { auth: true }),
   createStudent: (s) => request("/api/students", { method: "POST", body: s, auth: true }),
+  bulkStudents: (students) => request("/api/students/bulk", { method: "POST", body: { students }, auth: true }),
   updateStudent: (id, s) => request(`/api/students/${id}`, { method: "PATCH", body: s, auth: true }),
   addEntrevista: (id, e) => request(`/api/students/${id}/entrevistas`, { method: "POST", body: e, auth: true }),
   addCitacion: (id, c) => request(`/api/students/${id}/citaciones`, { method: "POST", body: c, auth: true }),

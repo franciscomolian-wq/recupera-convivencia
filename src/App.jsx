@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -90,10 +90,22 @@ const REC_KIND_TO_ARR = {
 };
 const REC_ARR_TO_KIND = Object.fromEntries(Object.entries(REC_KIND_TO_ARR).map(([k, v]) => [v, k]));
 
+// Deriva las partes del curso de un estudiante: usa grado/letra si existen, si no parsea "curso".
+function courseParts(s) {
+  let grado = s.grado || "";
+  let letra = s.letra || "";
+  if ((!grado || !letra) && s.curso) {
+    const m = String(s.curso).match(/^\s*(\d+°?)\s*([A-Za-z°]*)/);
+    if (m) { grado = grado || (m[1].includes("°") ? m[1] : m[1] + "°"); letra = letra || (m[2] || "").replace("°", ""); }
+  }
+  return { nivel: s.nivel || "", grado: grado || "", letra: letra || "" };
+}
+
 function apiStudentToUI(as) {
   const s = {
     id: as.id,
-    name: as.name, curso: as.curso || "", nivel: as.nivel || "",
+    name: as.name, rut: as.rut || "", curso: as.curso || "", nivel: as.nivel || "",
+    grado: as.grado || "", letra: as.letra || "", genero: as.genero || "",
     apoderadoNombre: as.apoderadoNombre || "", apoderadoEmail: as.apoderadoEmail || "",
     nee: !!as.nee, neeTipo: as.neeTipo || "",
     entrevistas: as.entrevistas || [],
@@ -276,6 +288,81 @@ function parseUsersCsv(text) {
   }).filter((r) => r.name || r.rut);
 }
 
+/* Lee la nómina oficial de SIGE (MINEDUC). Acepta el Excel exportado (HTML .xls),
+   .htm/.html o .csv. Devuelve estudiantes con nivel/grado/letra listos para el repositorio.
+   Formato SIGE: Año · RBD · Cod Grado · Desc Grado · Letra Curso · Run · Dígito Ver. ·
+   Género · Nombres · Apellido Paterno · Apellido Materno · … · Fecha Retiro */
+const stripAccents = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+function titleCaseName(s) {
+  return String(s || "").toLowerCase().split(/\s+/).filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+function sigeNivel(descGrado) {
+  const d = stripAccents(descGrado);
+  if (/(parvul|kinder|transic|sala cuna|medio menor|medio mayor|\bnt1\b|\bnt2\b)/.test(d)) return "parvulo";
+  if (/bas/.test(d)) return "basica";
+  if (/medi/.test(d)) return "media";
+  if (/adult/.test(d)) return "adultos";
+  return "basica";
+}
+function sigeGrado(descGrado) {
+  const m = String(descGrado || "").match(/(\d+)\s*°?/);
+  if (m) return m[1] + "°";
+  return titleCaseName(descGrado);
+}
+function parseSigeRows(rows) {
+  if (!rows.length) return [];
+  const header = rows[0].map(stripAccents);
+  const find = (...pats) => header.findIndex((h) => pats.some((p) => h.includes(p)));
+  const iDesc = find("desc grado", "descgrado", "grado");
+  const iLetra = find("letra");
+  const iRun = find("run");
+  const iDv = find("digito", "dv");
+  const iGen = find("genero", "sexo");
+  const iNom = find("nombres", "nombre");
+  const iApP = find("paterno");
+  const iApM = find("materno");
+  const iRet = find("retiro");
+  if (iNom < 0 || iDesc < 0) return []; // no parece nómina SIGE
+  const out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const c = rows[r];
+    if (!c || !c.length) continue;
+    const nombres = c[iNom] || "";
+    if (!stripAccents(nombres)) continue;
+    const retiro = iRet >= 0 ? String(c[iRet] || "").trim() : "";
+    const retirado = retiro && !/01-01-1900|1900-01-01/.test(retiro);
+    const run = (iRun >= 0 ? c[iRun] : "").replace(/\D/g, "");
+    const dv = (iDv >= 0 ? c[iDv] : "").trim();
+    const nombre = titleCaseName([nombres, iApP >= 0 ? c[iApP] : "", iApM >= 0 ? c[iApM] : ""].join(" "));
+    const desc = c[iDesc] || "";
+    out.push({
+      name: nombre,
+      rut: run ? `${run}-${dv || ""}`.replace(/-$/, "") : "",
+      nivel: sigeNivel(desc),
+      grado: sigeGrado(desc),
+      letra: (iLetra >= 0 ? c[iLetra] : "").trim().toUpperCase(),
+      genero: (iGen >= 0 ? c[iGen] : "").trim().toUpperCase().slice(0, 1),
+      retirado: !!retirado,
+    });
+  }
+  return out;
+}
+function parseSigeNomina(text) {
+  const looksHtml = /<t[rd][\s>]/i.test(text);
+  if (looksHtml && typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const trs = [...doc.querySelectorAll("tr")];
+    const rows = trs.map((tr) => [...tr.querySelectorAll("td,th")].map((td) => (td.textContent || "").replace(/\s+/g, " ").trim()));
+    return parseSigeRows(rows.filter((r) => r.length));
+  }
+  // CSV / TSV
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const delim = (lines[0].match(/;/g) || []).length >= (lines[0].match(/,/g) || []).length ? ";" : ",";
+  const rows = lines.map((l) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, "")));
+  return parseSigeRows(rows);
+}
+
 /* =================================================================
    RAÍZ — login + enrutado por rol
    ================================================================= */
@@ -302,6 +389,7 @@ export default function App() {
   const [acciones, setAcciones] = useState([]);
   const [protocols, setProtocols] = useState([]);
   const [permset, setPermset] = useState(null);
+  const [courseTeachers, setCourseTeachers] = useState(null);
 
   // Restaura la sesión si hay un token guardado (recarga de página).
   useEffect(() => {
@@ -335,13 +423,15 @@ export default function App() {
         setProtocols(by("protocol"));
         const ps = by("permset");
         setPermset(ps[0] || null);
+        const ct = by("courseTeacher");
+        setCourseTeachers(ct[0] || null);
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCourseTeachers(null); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -356,6 +446,7 @@ export default function App() {
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
     documents, setDocuments, acciones, setAcciones, protocols, setProtocols, permset, setPermset,
+    courseTeachers, setCourseTeachers,
   };
 
   const role = ROLES[session.role];
@@ -941,6 +1032,7 @@ const PORTAL_NAV = {
   protocolos: { label: "Protocolos del establecimiento", icon: ClipboardCheck },
   redes: { label: "Redes de derivación", icon: Network },
   auditoria: { label: "Panel de auditoría", icon: ClipboardCheck },
+  cursos: { label: "Cursos", icon: LayoutGrid },
   perfiles: { label: "Usuarios y accesos", icon: Users },
   permisos: { label: "Permisos por rol", icon: Lock },
   configuracion: { label: "Configuración", icon: Settings },
@@ -950,7 +1042,7 @@ const PORTAL_NAV = {
 /* Agrupación del menú por secciones, con color por sección (paleta Google) */
 const NAV_GROUPS = [
   { label: "Principal", color: "#1A73E8", keys: ["dashboard", "alertas", "micaso"] },
-  { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "inspectoria", "pie", "nuevo"] },
+  { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "cursos", "inspectoria", "pie", "nuevo"] },
   { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
   { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
   { label: "Análisis y planificación", color: "#1A73E8", keys: ["reportes", "planpme"] },
@@ -1000,7 +1092,7 @@ function effLevel(roleKey, mk, permset) {
 function navKeysFromPerms(roleKey, permset) {
   const sc = ROLES[roleKey]?.scope;
   if (sc === "family") return ["dashboard", "casos", "expedientes", "normativa"];
-  const keys = ["dashboard"];
+  const keys = ["dashboard", "cursos"];
   for (const m of PERM_MODULES) if (effLevel(roleKey, m.k, permset)) keys.push(m.k);
   if (effLevel(roleKey, "casos", permset) === "editar") keys.push("nuevo");
   if (sc === "admin" || sc === "audit") keys.push("auditoria");
@@ -1117,6 +1209,7 @@ function PortalApp(props) {
         {view === "permisos" && <PermissionsPage permset={props.permset} setPermset={props.setPermset} roleKey={session.role} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={pageRole} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
+        {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} onOpenStudent={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
         {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={pageRole} />}
@@ -1343,6 +1436,177 @@ function ExpBlock({ icon: Icon, title, children }) {
     <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-4">
       <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-2"><Icon size={16} style={{ color: C.primary }} /> {title}</div>
       {children}
+    </div>
+  );
+}
+
+/* =================== REPOSITORIO DE CURSOS =================== */
+function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers, roleKey, onOpenStudent }) {
+  const canManage = ["coordinador", "director", "superadmin"].includes(roleKey);
+  const [nivel, setNivel] = useState("");
+  const [grado, setGrado] = useState("");
+  const [letra, setLetra] = useState("");
+  const [teachers, setTeachers] = useState([]);
+  const [imp, setImp] = useState(null); // {rows, activos, retirados} vista previa
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  useEffect(() => { if (canManage) api.listUsers().then((us) => setTeachers(us.filter((u) => u.role === "profesorJefe"))).catch(() => {}); }, [canManage]);
+
+  function onSigeFile(e) {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    setMsg("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        // SIGE exporta en Latin-1 (ISO-8859-1); decodificamos correctamente los acentos.
+        const text = new TextDecoder("iso-8859-1").decode(reader.result);
+        const rows = parseSigeNomina(text);
+        if (!rows.length) { setMsg("No se reconoció el formato. Usa la nómina exportada de SIGE (Excel) o un CSV con las mismas columnas."); return; }
+        const activos = rows.filter((r) => !r.retirado);
+        setImp({ rows, activos, retirados: rows.length - activos.length });
+      } catch { setMsg("No se pudo leer el archivo."); }
+    };
+    reader.readAsArrayBuffer(f);
+  }
+
+  async function confirmarImport(incluirRetirados) {
+    if (!imp) return;
+    setBusy(true); setMsg("");
+    try {
+      const payload = (incluirRetirados ? imp.rows : imp.activos).map(({ retirado, ...r }) => r);
+      const res = await api.bulkStudents(payload);
+      const ss = await api.listStudents();
+      setStudents(ss.map(apiStudentToUI));
+      setImp(null);
+      setMsg(`Nómina importada: ${res.created} nuevo(s), ${res.updated} actualizado(s)${res.skipped ? `, ${res.skipped} omitido(s)` : ""}.`);
+    } catch (e) { setMsg("Error al importar: " + (e?.message || "intenta de nuevo.")); }
+    setBusy(false);
+  }
+
+  const parts = students.map((s) => ({ s, ...courseParts(s) }));
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  const niveles = uniq(parts.map((p) => p.nivel));
+  const grados = uniq(parts.filter((p) => p.nivel === nivel).map((p) => p.grado)).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  const letras = uniq(parts.filter((p) => p.nivel === nivel && p.grado === grado).map((p) => p.letra)).sort();
+  const alumnos = parts.filter((p) => p.nivel === nivel && p.grado === grado && p.letra === letra).map((p) => p.s);
+  const courseKey = `${nivel}|${grado}|${letra}`;
+  const ct = courseTeachers || {};
+  const assigned = ct[courseKey] && ct[courseKey].userId ? ct[courseKey] : null;
+  const cursoLabel = grado && letra ? `${grado}${letra}` : "";
+
+  async function asignarProfe(userId) {
+    const u = teachers.find((t) => t.id === userId);
+    const cur = courseTeachers ? { ...courseTeachers } : {};
+    const id = cur.id; delete cur.id;
+    cur[courseKey] = userId ? { userId, name: u?.name || "" } : null;
+    try {
+      if (id) { await api.updateOrgRecord(id, cur); setCourseTeachers({ id, ...cur }); }
+      else { const r = await api.addOrgRecord("courseTeacher", cur); setCourseTeachers({ id: r.id, ...(r.data || {}) }); }
+    } catch (e) { console.error("courseTeacher", e); }
+  }
+
+  const Sel = ({ value, onChange, children, disabled }) => (
+    <select value={value} onChange={onChange} disabled={disabled} className="rounded-md p-2.5 text-sm" style={{ ...inp, opacity: disabled ? 0.5 : 1 }}>{children}</select>
+  );
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Cursos" subtitle="Repositorio de estudiantes por curso. Elige nivel, grado y letra para ver a los alumnos del curso y su profesor jefe." right={<Toolbar onPrint={printView} />} />
+
+      {canManage && (
+        <div style={{ background: C.cardBg, border: `1px dashed ${C.cardBorder}` }} className="rounded-lg p-4 mb-5">
+          <div className="flex items-center gap-3 flex-wrap">
+            <UploadCloud size={18} color={C.primary} />
+            <div className="flex-1 min-w-[200px]">
+              <div style={{ color: C.ink }} className="text-sm font-medium">Importar nómina SIGE</div>
+              <div style={{ color: C.textSoft }} className="text-xs">Sube la nómina oficial descargada de SIGE (Excel/HTML) o un CSV. Arma todos los cursos automáticamente.</div>
+            </div>
+            <label className="cursor-pointer">
+              <span style={{ background: C.primary, color: "#fff" }} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium"><UploadCloud size={15} /> Elegir archivo</span>
+              <input type="file" accept=".htm,.html,.xls,.xlsx,.csv,.txt" className="hidden" onChange={onSigeFile} />
+            </label>
+          </div>
+          {msg && <div style={{ color: msg.startsWith("Error") || msg.startsWith("No") ? C.urgent : C.primary }} className="text-xs mt-3">{msg}</div>}
+          {imp && (
+            <div style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-md p-3 mt-3">
+              <div style={{ color: C.ink }} className="text-sm mb-2">Se detectaron <b>{imp.rows.length}</b> estudiante(s): {imp.activos.length} activo(s){imp.retirados ? `, ${imp.retirados} retirado(s)` : ""}.</div>
+              <div className="flex gap-2 flex-wrap">
+                <Btn onClick={() => confirmarImport(false)} disabled={busy}>{busy ? "Importando…" : `Importar ${imp.activos.length} activos`}</Btn>
+                {imp.retirados > 0 && <Btn variant="ghost" onClick={() => confirmarImport(true)} disabled={busy}>Incluir retirados ({imp.rows.length})</Btn>}
+                <Btn variant="ghost" onClick={() => setImp(null)} disabled={busy}>Cancelar</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Nivel</label>
+          <Sel value={nivel} onChange={(e) => { setNivel(e.target.value); setGrado(""); setLetra(""); }}>
+            <option value="">Selecciona…</option>
+            {niveles.map((n) => <option key={n} value={n}>{LEVELS[n] || n}</option>)}
+          </Sel>
+        </div>
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Grado</label>
+          <Sel value={grado} onChange={(e) => { setGrado(e.target.value); setLetra(""); }} disabled={!nivel}>
+            <option value="">Selecciona…</option>
+            {grados.map((g) => <option key={g} value={g}>{g}</option>)}
+          </Sel>
+        </div>
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Letra</label>
+          <Sel value={letra} onChange={(e) => setLetra(e.target.value)} disabled={!grado}>
+            <option value="">Selecciona…</option>
+            {letras.map((l) => <option key={l} value={l}>{l || "(sin letra)"}</option>)}
+          </Sel>
+        </div>
+      </div>
+
+      {niveles.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">Aún no hay estudiantes registrados. Se irán organizando por curso a medida que se agreguen.</div>}
+
+      {nivel && grado && letra && (
+        <>
+          <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div style={{ color: C.ink }} className="text-lg" >{cursoLabel} <span style={{ color: C.textSoft }} className="text-sm">· {LEVELS[nivel] || nivel}</span></div>
+                <div style={{ color: C.textSoft }} className="text-xs">{alumnos.length} estudiante(s)</div>
+              </div>
+              <div className="text-right">
+                <div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-wide">Profesor/a jefe</div>
+                {canManage ? (
+                  <select value={assigned?.userId || ""} onChange={(e) => asignarProfe(e.target.value)} className="mt-1 rounded-md p-2 text-sm" style={inp}>
+                    <option value="">— Sin asignar —</option>
+                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                ) : (
+                  <div style={{ color: assigned ? C.ink : C.textSoft }} className="text-sm mt-1">{assigned ? assigned.name : "Sin asignar"}</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Estudiantes del curso</div>
+          {alumnos.length === 0 ? <div style={{ color: C.textSoft }} className="text-sm">Sin estudiantes en este curso.</div> : (
+            <div className="flex flex-col gap-2">
+              {alumnos.map((st) => (
+                <button key={st.id} onClick={() => onOpenStudent(st.id)} className="text-left">
+                  <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center gap-3 hover:shadow-sm transition">
+                    <div style={{ background: C.primary }} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"><UserCircle size={16} color="#fff" /></div>
+                    <span style={{ color: C.ink }} className="text-sm flex-1">{st.name}</span>
+                    <span style={{ color: C.primary }} className="text-xs flex items-center gap-1">Ver expediente <ChevronRight size={13} /></span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
