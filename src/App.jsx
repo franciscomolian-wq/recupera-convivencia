@@ -69,10 +69,17 @@ function apiCaseToUI(ac) {
     autoEmails: !!ac.autoEmails,
     closed: !!ac.closed, closedAt: ac.closedAt, closeSummary: ac.closeSummary || "",
     studentId: ac.studentId || null,
+    participants: (ac.participants || []).map((p) => ({ studentId: p.studentId, role: p.role, name: p.student?.name || "", curso: p.student?.curso || "" })),
     establishmentId: ac.establishmentId || null,
     log: [],
   };
 }
+
+// ¿El caso involucra a este estudiante? (principal o participante con rol)
+function caseHasStudent(c, id) {
+  return c.studentId === id || (c.participants || []).some((p) => p.studentId === id);
+}
+const ROLE_LABEL = { afectado: "Afectado/a", involucrado: "Involucrado/a", testigo: "Testigo" };
 
 // Establecimiento de la API + estadísticas derivadas de los casos.
 function apiEstablishmentToUI(e, cases) {
@@ -1169,8 +1176,10 @@ function PortalApp(props) {
 
   // Crea el caso (y el estudiante si es nuevo) en la base de datos.
   async function persistCase(built) {
+    const parts = (built.participants || []).filter((p) => p.studentId);
     let sid = built.studentId;
-    if (!sid) {
+    // Si no hay estudiante vinculado NI participantes, se crea uno nuevo con los datos escritos.
+    if (!sid && parts.length === 0) {
       const ns = await api.createStudent({ name: built.studentLabel, curso: built.curso || null, nivel: built.level || null });
       setStudents((prev) => [...prev, apiStudentToUI(ns)]);
       sid = ns.id;
@@ -1179,7 +1188,8 @@ function PortalApp(props) {
       code: built.id, typeKey: built.typeKey, studentLabel: built.studentLabel,
       level: built.level, relato: built.relato, curso: built.curso,
       fechaHecho: built.fechaHecho, hora: built.hora, lugar: built.lugar,
-      testigos: built.testigos, adultosRef: built.adultosRef, studentId: sid,
+      testigos: built.testigos, adultosRef: built.adultosRef, studentId: sid || null,
+      participants: parts.map((p) => ({ studentId: p.studentId, role: p.role })),
       steps: built.steps.map((s) => ({ title: s.title, role: s.role, basis: s.basis, due: s.due })),
     });
     const mapped = apiCaseToUI(created);
@@ -1404,7 +1414,7 @@ function StudentsPage({ students, cases, onOpen }) {
       <PageHead title="Expedientes de estudiantes" subtitle="Cada estudiante tiene un expediente único que reúne sus casos e historial (entrevistas, citaciones, compromisos y medidas)." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "expedientes.json")} />} />
       <div className="flex flex-col gap-2">
         {students.map((s) => {
-          const scases = cases.filter((c) => c.studentId === s.id);
+          const scases = cases.filter((c) => caseHasStudent(c, s.id));
           const abiertos = scases.filter((c) => !c.closed).length;
           return (
             <button key={s.id} onClick={() => onOpen(s.id)} className="text-left">
@@ -1613,7 +1623,7 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
 
 function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
   const readOnly = role.scope === "audit" || role.scope === "family";
-  const scases = cases.filter((c) => c.studentId === s.id);
+  const scases = cases.filter((c) => caseHasStudent(c, s.id));
   const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "", foto: null });
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
   const [com, setCom] = useState("");
@@ -2014,7 +2024,7 @@ function PIEPage({ students, setStudents, cases, role }) {
     api.updateStudent(sid, { nee: next }).catch((e) => console.error("nee", e));
   }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
-  const scases = cases.filter((c) => c.studentId === sid);
+  const scases = cases.filter((c) => caseHasStudent(c, sid));
 
   return (
     <div className="max-w-3xl">
@@ -2138,7 +2148,7 @@ function AlertsPage({ cases, students, gestiones, onOpenCase, onOpenStudent, onG
     if (last) { const d = Math.floor((Date.now() - new Date(last).getTime()) / 86400000); if (d > 14) alerts.push({ sev: "media", tipo: "Sin seguimiento", msg: `${c.id}: sin acciones registradas hace ${d} días`, action: () => onOpenCase(c.id) }); }
   });
   students.forEach((s) => {
-    const n = cases.filter((c) => c.studentId === s.id).length;
+    const n = cases.filter((c) => caseHasStudent(c, s.id)).length;
     if (n > 1) alerts.push({ sev: "media", tipo: "Estudiante reincidente", msg: `${s.name} (${s.curso}): ${n} casos registrados`, action: () => onOpenStudent(s.id) });
     const neg = (s.anotaciones || []).filter((a) => a.tipo === "negativa").length;
     if (neg >= 2) alerts.push({ sev: "media", tipo: "Registros negativos acumulados", msg: `${s.name}: ${neg} anotaciones negativas en hoja de vida`, action: () => onOpenStudent(s.id) });
@@ -2407,7 +2417,6 @@ function PlanPMEPage({ docs, setDocs, acciones, setAcciones, role }) {
 /* ------------------- NUEVO CASO + ANALIZADOR ---------------------- */
 function CaseWizard({ students, protocols, onCreate, onCancel }) {
   const [mode, setMode] = useState("predef");
-  const [studentId, setStudentId] = useState("");
   const [typeKey, setTypeKey] = useState("");
   const [involved, setInvolved] = useState("");
   const [level, setLevel] = useState("basica");
@@ -2418,19 +2427,23 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
   const [error, setError] = useState("");
   const [stuQuery, setStuQuery] = useState("");
   const [stuOpen, setStuOpen] = useState(false);
+  const [parts, setParts] = useState([]); // [{studentId, name, curso, role}]
   const chosenKey = mode === "predef" ? typeKey : analysis?.best?.key;
   const setField = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
 
   const stuQ = stuQuery.trim().toLowerCase();
-  const stuMatches = (stuQ
-    ? students.filter((s) => `${s.name} ${s.curso || ""} ${s.rut || ""}`.toLowerCase().includes(stuQ))
-    : students
-  ).slice(0, 40);
-  function pickStudent(s) {
-    setStudentId(s.id); setInvolved(s.name); setField("curso", s.curso || "");
-    setStuQuery(`${s.name}${s.curso ? " · " + s.curso : ""}`); setStuOpen(false);
+  const addedIds = new Set(parts.map((p) => p.studentId));
+  const stuMatches = students
+    .filter((s) => !addedIds.has(s.id))
+    .filter((s) => !stuQ || `${s.name} ${s.curso || ""} ${s.rut || ""}`.toLowerCase().includes(stuQ))
+    .slice(0, 40);
+  function addPart(s) {
+    setParts((prev) => (prev.some((p) => p.studentId === s.id) ? prev : [...prev, { studentId: s.id, name: s.name, curso: s.curso || "", role: prev.length === 0 ? "afectado" : "involucrado" }]));
+    setStuQuery(""); setStuOpen(false);
+    if (parts.length === 0 && s.curso) setField("curso", s.curso);
   }
-  function clearStudent() { setStudentId(""); setStuQuery(""); setStuOpen(false); }
+  function removePart(id) { setParts((prev) => prev.filter((p) => p.studentId !== id)); }
+  function setPartRole(id, role) { setParts((prev) => prev.map((p) => (p.studentId === id ? { ...p, role } : p))); }
 
   async function create() {
     if (!chosenKey || saving) return;
@@ -2438,7 +2451,10 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
     try {
       const id = `RC-2026-${Math.floor(100 + Math.random() * 900)}`;
       const proto = (protocols || []).find((p) => p.typeKey === chosenKey);
-      const built = buildCase(id, chosenKey, involved || "Estudiante (sin identificar aún)", 0, 0, "", { relato, level, ...f, studentId: studentId || null }, proto?.steps || null);
+      const primary = parts.find((p) => p.role === "afectado") || parts[0] || null;
+      const label = [parts.map((p) => p.name).join(", "), involved.trim()].filter(Boolean).join(" · ") || "Estudiante (sin identificar aún)";
+      const built = buildCase(id, chosenKey, label, 0, 0, "", { relato, level, ...f, curso: f.curso || primary?.curso || "", studentId: primary?.studentId || null }, proto?.steps || null);
+      built.participants = parts.map((p) => ({ studentId: p.studentId, role: p.role }));
       await onCreate(built);
     } catch (err) {
       setError((err && (err.error || err.message)) || "No se pudo guardar el caso.");
@@ -2494,27 +2510,39 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
           </div>
         )}
         <div>
-          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Expediente del estudiante</label>
-          <div className="relative mt-1.5">
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiantes involucrados</label>
+          <p className="text-[11px] mt-0.5 mb-1.5" style={{ color: C.textSoft }}>Agrega uno o varios. A cada uno asígnale su rol; el caso quedará en el expediente de todos.</p>
+
+          {parts.length > 0 && (
+            <div className="flex flex-col gap-2 mb-2">
+              {parts.map((p) => (
+                <div key={p.studentId} className="flex items-center gap-2 rounded-md p-2" style={{ background: C.paper, border: `1px solid ${C.cardBorder}` }}>
+                  <span className="flex-1 text-sm" style={{ color: C.ink }}>{p.name}{p.curso ? <span style={{ color: C.textSoft }} className="text-xs"> · {p.curso}</span> : null}</span>
+                  <select value={p.role} onChange={(e) => setPartRole(p.studentId, e.target.value)} className="rounded-md p-1.5 text-xs" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
+                    {Object.entries(ROLE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                  <button type="button" onClick={() => removePart(p.studentId)} title="Quitar" className="p-1 rounded" style={{ color: C.urgent }}><X size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="relative">
             <input
               value={stuQuery}
-              onChange={(e) => { setStuQuery(e.target.value); if (studentId) setStudentId(""); setStuOpen(true); }}
+              onChange={(e) => { setStuQuery(e.target.value); setStuOpen(true); }}
               onFocus={() => setStuOpen(true)}
               onBlur={() => setTimeout(() => setStuOpen(false), 150)}
-              placeholder="Busca por nombre, curso o RUT… (o déjalo vacío para crear uno nuevo)"
-              className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${studentId ? C.primary : C.cardBorder}`, color: C.text }} />
-            {studentId && (
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={clearStudent} title="Quitar selección"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded" style={{ color: C.textSoft }}><X size={15} /></button>
-            )}
+              placeholder={parts.length ? "Agregar otro estudiante (nombre, curso o RUT)…" : "Busca por nombre, curso o RUT…"}
+              className="w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
             {stuOpen && (
               <div className="absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-auto rounded-md shadow-lg" style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }}>
-                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={clearStudent}
-                  className="w-full text-left px-3 py-2 text-sm border-b hover:bg-gray-50" style={{ color: C.primary, borderColor: C.cardBorder }}>➕ Nuevo estudiante (se crea con los datos de abajo)</button>
-                {stuMatches.length === 0 ? (
-                  <div className="px-3 py-2 text-sm" style={{ color: C.textSoft }}>Sin coincidencias. Puedes crear uno nuevo con los datos de abajo.</div>
+                {students.length === 0 ? (
+                  <div className="px-3 py-2 text-sm" style={{ color: C.textSoft }}>No hay estudiantes en el repositorio. Importa la nómina SIGE en “Cursos”, o crea el caso sin vincular (queda como texto libre abajo).</div>
+                ) : stuMatches.length === 0 ? (
+                  <div className="px-3 py-2 text-sm" style={{ color: C.textSoft }}>Sin coincidencias.</div>
                 ) : stuMatches.map((s) => (
-                  <button key={s.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pickStudent(s)}
+                  <button key={s.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addPart(s)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2" style={{ color: C.ink }}>
                     <span>{s.name}</span>
                     <span className="text-xs shrink-0" style={{ color: C.textSoft }}>{s.curso || ""}{s.rut ? ` · ${s.rut}` : ""}</span>
@@ -2523,12 +2551,11 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
               </div>
             )}
           </div>
-          {students.length > 0 && <div className="text-[11px] mt-1" style={{ color: C.textSoft }}>{students.length} estudiante(s) en el repositorio.</div>}
         </div>
 
         <div>
-          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante(s) / personas involucradas</label>
-          <input value={involved} onChange={(e) => setInvolved(e.target.value)} placeholder="Ej: Estudiante 6°A (iniciales R.P.)"
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Otras personas involucradas (sin expediente)</label>
+          <input value={involved} onChange={(e) => setInvolved(e.target.value)} placeholder="Opcional. Ej: apoderado, docente, o estudiante sin registrar"
             className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
         </div>
         <div>
@@ -2766,10 +2793,24 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
           </div>
         )}
       </div>
-      <div className="flex items-center gap-3 flex-wrap mb-6">
+      <div className="flex items-center gap-3 flex-wrap mb-4">
         <span style={{ color: C.textSoft }} className="text-sm">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</span>
-        {student && onOpenStudent && <button onClick={() => onOpenStudent(student.id)} style={{ color: C.primary }} className="text-xs flex items-center gap-1 print:hidden"><ClipboardList size={13} /> Ver expediente</button>}
+        {student && onOpenStudent && (!c.participants || c.participants.length === 0) && <button onClick={() => onOpenStudent(student.id)} style={{ color: C.primary }} className="text-xs flex items-center gap-1 print:hidden"><ClipboardList size={13} /> Ver expediente</button>}
       </div>
+      {!isFamily && c.participants && c.participants.length > 0 && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Estudiantes involucrados ({c.participants.length})</div>
+          <div className="flex flex-col gap-2">
+            {c.participants.map((p) => (
+              <div key={p.studentId} className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: p.role === "afectado" ? C.urgent + "18" : p.role === "testigo" ? C.paper : C.adminSoft, color: p.role === "afectado" ? C.urgent : p.role === "testigo" ? C.textSoft : C.primary, border: `1px solid ${C.cardBorder}` }}>{ROLE_LABEL[p.role] || p.role}</span>
+                <span className="text-sm flex-1" style={{ color: C.ink }}>{p.name}{p.curso ? <span style={{ color: C.textSoft }} className="text-xs"> · {p.curso}</span> : null}</span>
+                {onOpenStudent && <button onClick={() => onOpenStudent(p.studentId)} style={{ color: C.primary }} className="text-xs flex items-center gap-1 print:hidden"><ClipboardList size={13} /> Ver expediente</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {c.closed && (
         <div style={{ background: C.ok + "18", border: `1px solid ${C.ok}` }} className="rounded-lg p-3 mb-4 flex items-start gap-2">
           <Lock size={15} style={{ color: C.ok }} className="mt-0.5 shrink-0" />
@@ -2956,7 +2997,7 @@ function ReportsPage({ cases, setCases, students = [] }) {
   const cursoCount = {};
   cases.forEach((c) => { const k = c.curso || "—"; cursoCount[k] = (cursoCount[k] || 0) + 1; });
   const cursoTop = Object.entries(cursoCount).sort((a, b) => b[1] - a[1])[0];
-  const reincidentes = students.filter((s) => cases.filter((c) => c.studentId === s.id).length > 1).length;
+  const reincidentes = students.filter((s) => cases.filter((c) => caseHasStudent(c, s.id)).length > 1).length;
   const closedWithDates = cases.filter((c) => c.closed && c.closedAt && c.start);
   const tiempoProm = closedWithDates.length ? Math.round(closedWithDates.reduce((a, c) => a + (new Date(c.closedAt) - new Date(c.start)) / 86400000, 0) / closedWithDates.length) : null;
   const totCit = students.reduce((a, s) => a + (s.citaciones || []).length, 0);
