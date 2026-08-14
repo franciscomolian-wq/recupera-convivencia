@@ -3756,14 +3756,16 @@ function AdminConfig({ establishments, setEstablishments }) {
         <div className="flex flex-col gap-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del establecimiento" className="rounded-md p-2.5 text-sm" style={inpS} />
           <div className="grid grid-cols-2 gap-3">
-            <input value={rbd} onChange={(e) => setRbd(e.target.value)} placeholder="RBD (ej: 10251-2)" className="rounded-md p-2.5 text-sm" style={inpS} />
+            <input value={rbd} onChange={(e) => setRbd(e.target.value)} placeholder="RBD * (ej: 10251-2)" className="rounded-md p-2.5 text-sm" style={inpS} />
             <input value={comuna} onChange={(e) => setComuna(e.target.value)} placeholder="Comuna" className="rounded-md p-2.5 text-sm" style={inpS} />
           </div>
           <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-md p-2.5 text-sm" style={inpS}>
             {Object.entries(LEVELS).filter(([k]) => k !== "todos").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          <p style={{ color: C.textSoft }} className="text-[11px]">El RBD (Rol Base de Datos del MINEDUC) es obligatorio y único: identifica oficialmente a cada establecimiento y evita duplicados.</p>
           <div><Btn accent={C.admin} onClick={async () => {
             if (!name.trim()) return;
+            if (!rbd.trim()) { alert("El RBD es obligatorio."); return; }
             try {
               const e = await api.createEstablishment({ name, rbd, comuna, type });
               setEstablishments([...establishments, { ...e, activos: 0, vencidos: 0, cumplimiento: e.cumplimiento ?? 100 }]);
