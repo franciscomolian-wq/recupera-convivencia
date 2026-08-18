@@ -375,7 +375,18 @@ function parseSigeNomina(text) {
 /* =================================================================
    RAÍZ — login + enrutado por rol
    ================================================================= */
-export default function App() {
+// Enrutado por dominio: la raíz (recuperaconvivencia.cl / www) muestra la web de
+// presentación; el subdominio app. (o netlify.app / localhost) muestra la plataforma.
+function isMarketingHost() {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname.toLowerCase();
+  return h === "recuperaconvivencia.cl" || h === "www.recuperaconvivencia.cl";
+}
+export default function Root() {
+  return isMarketingHost() ? <LandingPage /> : <App />;
+}
+
+function App() {
   const [session, setSession] = useState(null);
   const [booting, setBooting] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
@@ -466,6 +477,87 @@ export default function App() {
 /* ---------------------------------------------------------------
    SPLASH (mientras se restaura la sesión)
    ---------------------------------------------------------------- */
+/* ------------------- WEB DE PRESENTACIÓN (dominio raíz) ------------------- */
+const APP_ENTRY = "https://app.recuperaconvivencia.cl";
+function LandingPage() {
+  const feats = [
+    { icon: FolderOpen, t: "Gestión de casos", d: "Registra incidentes y sigue el paso a paso legal, con plazos y responsables según la normativa vigente." },
+    { icon: ClipboardList, t: "Expediente único", d: "Cada estudiante reúne sus casos, entrevistas, citaciones, compromisos y medidas en un solo lugar." },
+    { icon: Sparkles, t: "Protocolos con IA", d: "El sistema lee el Reglamento de tu establecimiento (RICE) y recomienda el procedimiento, con la ley siempre por sobre todo." },
+    { icon: Lock, t: "Seguridad y Ley 21.719", d: "Cifrado de datos sensibles, registro de auditoría y protección reforzada de datos de menores." },
+    { icon: Users, t: "Importa tu nómina SIGE", d: "Carga a todos tus estudiantes por curso desde la nómina oficial del MINEDUC, en segundos." },
+    { icon: BarChart3, t: "Reportes y alertas", d: "Estadísticas, alertas de plazos vencidos y reincidencia, con exportación a PDF y Excel." },
+  ];
+  return (
+    <div style={{ background: C.appBg, color: C.ink, minHeight: "100vh" }}>
+      {/* Barra superior */}
+      <header style={{ background: "#fff", borderBottom: `1px solid ${C.cardBorder}` }} className="sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center"><Scale size={18} color="#fff" /></div>
+            <div>
+              <div style={{ ...serif, color: C.ink }} className="text-base leading-none">Recupera Convivencia</div>
+              <div style={{ color: C.textSoft }} className="text-[10px] uppercase tracking-wider mt-0.5">Convivencia escolar</div>
+            </div>
+          </div>
+          <a href={APP_ENTRY} style={{ background: C.primary, color: "#fff" }} className="text-sm font-medium rounded-full px-5 py-2 hover:opacity-90 transition">Ingresar</a>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="max-w-5xl mx-auto px-5 pt-16 pb-14 text-center">
+        <div style={{ background: C.adminSoft, color: C.admin }} className="inline-block text-xs font-medium px-3 py-1 rounded-full mb-5">Plataforma para establecimientos educacionales de Chile</div>
+        <h1 style={{ ...serif, color: C.ink }} className="text-4xl sm:text-5xl leading-tight mb-4" >La convivencia escolar,<br />gestionada con la ley por delante.</h1>
+        <p style={{ color: C.textSoft }} className="text-lg max-w-2xl mx-auto mb-8">Registra casos, sigue protocolos, lleva el expediente de cada estudiante y cumple la normativa — todo en un solo lugar, seguro y ordenado.</p>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <a href={APP_ENTRY} style={{ background: C.primary, color: "#fff" }} className="text-sm font-medium rounded-full px-7 py-3 hover:opacity-90 transition inline-flex items-center gap-2">Ingresar a la plataforma <ChevronRight size={16} /></a>
+          <a href="#funciones" style={{ background: "#fff", color: C.ink, border: `1px solid ${C.cardBorder}` }} className="text-sm font-medium rounded-full px-7 py-3 hover:shadow-sm transition">Ver funciones</a>
+        </div>
+      </section>
+
+      {/* Franja legal */}
+      <section style={{ background: "#fff", borderTop: `1px solid ${C.cardBorder}`, borderBottom: `1px solid ${C.cardBorder}` }} className="py-4">
+        <div className="max-w-5xl mx-auto px-5 flex items-center justify-center gap-2 text-center flex-wrap">
+          <Shield size={16} color={C.ok} />
+          <span style={{ color: C.textSoft }} className="text-sm">Alineado con la Ley 21.809, Aula Segura, Ley Karin, Inclusión y la Ley 21.719 de protección de datos.</span>
+        </div>
+      </section>
+
+      {/* Funciones */}
+      <section id="funciones" className="max-w-5xl mx-auto px-5 py-16">
+        <h2 style={{ ...serif, color: C.ink }} className="text-2xl text-center mb-2">Todo lo que tu equipo de convivencia necesita</h2>
+        <p style={{ color: C.textSoft }} className="text-center text-sm mb-10">Pensado para encargados de convivencia, inspectoría, PIE y dirección.</p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {feats.map((f) => (
+            <div key={f.t} style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5">
+              <div style={{ background: C.adminSoft }} className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"><f.icon size={20} color={C.primary} /></div>
+              <div style={{ color: C.ink }} className="font-medium mb-1">{f.t}</div>
+              <div style={{ color: C.textSoft }} className="text-sm leading-relaxed">{f.d}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA final */}
+      <section className="max-w-5xl mx-auto px-5 pb-16">
+        <div style={{ background: C.primary }} className="rounded-2xl p-10 text-center">
+          <h2 style={{ ...serif, color: "#fff" }} className="text-2xl mb-2">¿Tu establecimiento ya tiene acceso?</h2>
+          <p style={{ color: "#fff", opacity: 0.9 }} className="text-sm mb-6">Ingresa con tu RUT y contraseña. El acceso es exclusivo para personal autorizado.</p>
+          <a href={APP_ENTRY} style={{ background: "#fff", color: C.primary }} className="text-sm font-medium rounded-full px-7 py-3 inline-flex items-center gap-2 hover:opacity-90 transition">Ir a la plataforma <ChevronRight size={16} /></a>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer style={{ background: "#fff", borderTop: `1px solid ${C.cardBorder}` }} className="py-8">
+        <div className="max-w-5xl mx-auto px-5 flex items-center justify-between gap-3 flex-wrap">
+          <div style={{ color: C.textSoft }} className="text-xs">© 2026 Recupera Convivencia · Plataforma de convivencia escolar</div>
+          <a href="mailto:contacto@recuperaconvivencia.cl" style={{ color: C.primary }} className="text-xs">contacto@recuperaconvivencia.cl</a>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 function Splash() {
   return (
     <div style={{ background: C.appBg }} className="min-h-screen flex flex-col items-center justify-center gap-3">
