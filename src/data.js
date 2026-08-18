@@ -277,7 +277,7 @@ export const CASE_TYPES = {
 export const ROLES = {
   superadmin: { label: "Súper Administrador", scope: "superadmin" },
   coordinador: { label: "Coordinador/a de Convivencia", scope: "admin" },
-  director: { label: "Director/a", scope: "audit" },
+  director: { label: "Director/a", scope: "admin" },
   sostenedor: { label: "Sostenedor", scope: "audit" },
   superintendencia: { label: "Superintendencia de Educación", scope: "audit" },
   inspectoria: { label: "Inspectoría General", scope: "admin" },
