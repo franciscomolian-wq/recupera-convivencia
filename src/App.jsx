@@ -1464,22 +1464,36 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
 
   useEffect(() => { if (canManage) api.listUsers().then((us) => setTeachers(us.filter((u) => u.role === "profesorJefe"))).catch(() => {}); }, [canManage]);
 
-  function onSigeFile(e) {
-    const f = e.target.files?.[0]; e.target.value = "";
-    if (!f) return;
+  function readFileText(f) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      // SIGE exporta en Latin-1 (ISO-8859-1); decodificamos correctamente los acentos.
+      reader.onload = () => { try { resolve(new TextDecoder("iso-8859-1").decode(reader.result)); } catch (err) { reject(err); } };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(f);
+    });
+  }
+
+  async function onSigeFile(e) {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    if (!files.length) return;
     setMsg("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        // SIGE exporta en Latin-1 (ISO-8859-1); decodificamos correctamente los acentos.
-        const text = new TextDecoder("iso-8859-1").decode(reader.result);
-        const rows = parseSigeNomina(text);
-        if (!rows.length) { setMsg("No se reconoció el formato. Usa la nómina exportada de SIGE (Excel) o un CSV con las mismas columnas."); return; }
-        const activos = rows.filter((r) => !r.retirado);
-        setImp({ rows, activos, retirados: rows.length - activos.length });
-      } catch { setMsg("No se pudo leer el archivo."); }
-    };
-    reader.readAsArrayBuffer(f);
+    try {
+      // Combina uno o varios archivos (p. ej. básica + media). Deduplica por RUN.
+      const seen = new Set();
+      const rows = [];
+      for (const f of files) {
+        const parsed = parseSigeNomina(await readFileText(f));
+        for (const r of parsed) {
+          const key = r.rut || `${r.name}|${r.grado}|${r.letra}`;
+          if (seen.has(key)) continue;
+          seen.add(key); rows.push(r);
+        }
+      }
+      if (!rows.length) { setMsg("No se reconoció el formato. Usa la nómina exportada de SIGE (Excel) o un CSV con las mismas columnas."); return; }
+      const activos = rows.filter((r) => !r.retirado);
+      setImp({ rows, activos, retirados: rows.length - activos.length, archivos: files.length });
+    } catch { setMsg("No se pudo leer el archivo."); }
   }
 
   async function confirmarImport(incluirRetirados) {
@@ -1492,7 +1506,7 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
       setStudents(ss.map(apiStudentToUI));
       setImp(null);
       setMsg(`Nómina importada: ${res.created} nuevo(s), ${res.updated} actualizado(s)${res.skipped ? `, ${res.skipped} omitido(s)` : ""}.`);
-    } catch (e) { setMsg("Error al importar: " + (e?.message || "intenta de nuevo.")); }
+    } catch (e) { setMsg("Error al importar: " + (e?.error || e?.message || "intenta de nuevo.")); }
     setBusy(false);
   }
 
@@ -1532,17 +1546,17 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
             <UploadCloud size={18} color={C.primary} />
             <div className="flex-1 min-w-[200px]">
               <div style={{ color: C.ink }} className="text-sm font-medium">Importar nómina SIGE</div>
-              <div style={{ color: C.textSoft }} className="text-xs">Sube la nómina oficial descargada de SIGE (Excel/HTML) o un CSV. Arma todos los cursos automáticamente.</div>
+              <div style={{ color: C.textSoft }} className="text-xs">Sube la nómina oficial descargada de SIGE (Excel/HTML) o un CSV. Puedes elegir <b>varios archivos</b> a la vez (ej: básica y media). Arma todos los cursos automáticamente.</div>
             </div>
             <label className="cursor-pointer">
-              <span style={{ background: C.primary, color: "#fff" }} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium"><UploadCloud size={15} /> Elegir archivo</span>
-              <input type="file" accept=".htm,.html,.xls,.xlsx,.csv,.txt" className="hidden" onChange={onSigeFile} />
+              <span style={{ background: C.primary, color: "#fff" }} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium"><UploadCloud size={15} /> Elegir archivo(s)</span>
+              <input type="file" multiple accept=".htm,.html,.xls,.xlsx,.csv,.txt" className="hidden" onChange={onSigeFile} />
             </label>
           </div>
           {msg && <div style={{ color: msg.startsWith("Error") || msg.startsWith("No") ? C.urgent : C.primary }} className="text-xs mt-3">{msg}</div>}
           {imp && (
             <div style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-md p-3 mt-3">
-              <div style={{ color: C.ink }} className="text-sm mb-2">Se detectaron <b>{imp.rows.length}</b> estudiante(s): {imp.activos.length} activo(s){imp.retirados ? `, ${imp.retirados} retirado(s)` : ""}.</div>
+              <div style={{ color: C.ink }} className="text-sm mb-2">Se detectaron <b>{imp.rows.length}</b> estudiante(s){imp.archivos > 1 ? ` en ${imp.archivos} archivos` : ""}: {imp.activos.length} activo(s){imp.retirados ? `, ${imp.retirados} retirado(s)` : ""}.</div>
               <div className="flex gap-2 flex-wrap">
                 <Btn onClick={() => confirmarImport(false)} disabled={busy}>{busy ? "Importando…" : `Importar ${imp.activos.length} activos`}</Btn>
                 {imp.retirados > 0 && <Btn variant="ghost" onClick={() => confirmarImport(true)} disabled={busy}>Incluir retirados ({imp.rows.length})</Btn>}
