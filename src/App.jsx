@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -1411,34 +1411,90 @@ function CaseList({ cases, onOpen, role }) {
 
 /* ------------------- EXPEDIENTES DE ESTUDIANTES ------------------- */
 function StudentsPage({ students, cases, onOpen }) {
+  const [q, setQ] = useState("");
+  const [nivel, setNivel] = useState("");
+  const [grado, setGrado] = useState("");
+  const [letra, setLetra] = useState("");
+  const LIMIT = 80;
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  const enriched = students.map((s) => ({ s, ...courseParts(s) }));
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  const niveles = uniq(enriched.map((e) => e.nivel));
+  const grados = uniq(enriched.filter((e) => e.nivel === nivel).map((e) => e.grado)).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  const letras = uniq(enriched.filter((e) => e.nivel === nivel && e.grado === grado).map((e) => e.letra)).sort();
+  const query = q.trim().toLowerCase();
+  const filtered = enriched.filter((e) =>
+    (!nivel || e.nivel === nivel) && (!grado || e.grado === grado) && (!letra || e.letra === letra) &&
+    (!query || `${e.s.name} ${e.s.rut || ""} ${e.s.curso || ""}`.toLowerCase().includes(query))
+  );
+  const shown = filtered.slice(0, LIMIT);
+  const Sel = ({ value, onChange, children, disabled }) => (
+    <select value={value} onChange={onChange} disabled={disabled} className="rounded-md p-2 text-sm" style={{ ...inp, opacity: disabled ? 0.5 : 1 }}>{children}</select>
+  );
+
   return (
     <div>
       <PageHead title="Expedientes de estudiantes" subtitle="Cada estudiante tiene un expediente único que reúne sus casos e historial (entrevistas, citaciones, compromisos y medidas)." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "expedientes.json")} />} />
-      <div className="flex flex-col gap-2">
-        {students.map((s) => {
-          const scases = cases.filter((c) => caseHasStudent(c, s.id));
-          const abiertos = scases.filter((c) => !c.closed).length;
-          return (
-            <button key={s.id} onClick={() => onOpen(s.id)} className="text-left">
-              <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
-                <div className="flex items-center gap-3">
-                  <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={18} color="#fff" /></div>
-                  <div>
-                    <div style={{ color: C.ink }} className="text-sm font-medium">{s.name}</div>
-                    <div style={{ color: C.textSoft }} className="text-xs">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""}</div>
+
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 mb-4 flex flex-col gap-3">
+        <div className="relative">
+          <Search size={15} color={C.textSoft} className="absolute left-3 top-1/2 -translate-y-1/2" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, RUT o curso…"
+            className="w-full rounded-md p-2.5 pl-9 text-sm" style={inp} />
+        </div>
+        <div className="flex gap-2 flex-wrap items-center">
+          <Sel value={nivel} onChange={(e) => { setNivel(e.target.value); setGrado(""); setLetra(""); }}>
+            <option value="">Todos los niveles</option>
+            {niveles.map((n) => <option key={n} value={n}>{LEVELS[n] || n}</option>)}
+          </Sel>
+          <Sel value={grado} onChange={(e) => { setGrado(e.target.value); setLetra(""); }} disabled={!nivel}>
+            <option value="">Todos los grados</option>
+            {grados.map((g) => <option key={g} value={g}>{g}</option>)}
+          </Sel>
+          <Sel value={letra} onChange={(e) => setLetra(e.target.value)} disabled={!grado}>
+            <option value="">Todas las letras</option>
+            {letras.map((l) => <option key={l} value={l}>{l || "(sin letra)"}</option>)}
+          </Sel>
+          {(q || nivel || grado || letra) && (
+            <button onClick={() => { setQ(""); setNivel(""); setGrado(""); setLetra(""); }} style={{ color: C.primary }} className="text-xs flex items-center gap-1"><X size={13} /> Limpiar</button>
+          )}
+          <span style={{ color: C.textSoft }} className="text-xs ml-auto">{filtered.length} de {students.length} estudiante(s)</span>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ color: C.textSoft }} className="text-sm text-center py-8">Sin coincidencias. Ajusta el buscador o los filtros.</div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {shown.map(({ s }) => {
+            const scases = cases.filter((c) => caseHasStudent(c, s.id));
+            const abiertos = scases.filter((c) => !c.closed).length;
+            return (
+              <button key={s.id} onClick={() => onOpen(s.id)} className="text-left">
+                <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 hover:shadow-sm transition">
+                  <div className="flex items-center gap-3">
+                    <div style={{ background: C.primary }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={18} color="#fff" /></div>
+                    <div>
+                      <div style={{ color: C.ink }} className="text-sm font-medium">{s.name}</div>
+                      <div style={{ color: C.textSoft }} className="text-xs">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span style={{ color: C.textSoft }}>Casos: <b style={{ color: C.ink }}>{scases.length}</b></span>
+                    <span style={{ color: C.textSoft }}>Abiertos: <b style={{ color: abiertos ? C.warn : C.ok }}>{abiertos}</b></span>
+                    <span style={{ color: C.textSoft }}>Medidas: <b style={{ color: C.ink }}>{(s.medidas || []).length}</b></span>
+                    <ChevronRight size={16} color={C.textSoft} />
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs">
-                  <span style={{ color: C.textSoft }}>Casos: <b style={{ color: C.ink }}>{scases.length}</b></span>
-                  <span style={{ color: C.textSoft }}>Abiertos: <b style={{ color: abiertos ? C.warn : C.ok }}>{abiertos}</b></span>
-                  <span style={{ color: C.textSoft }}>Medidas: <b style={{ color: C.ink }}>{(s.medidas || []).length}</b></span>
-                  <ChevronRight size={16} color={C.textSoft} />
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+          {filtered.length > LIMIT && (
+            <div style={{ color: C.textSoft }} className="text-xs text-center py-3">Mostrando {LIMIT} de {filtered.length}. Afina la búsqueda o los filtros para ver el resto.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
