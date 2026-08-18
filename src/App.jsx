@@ -321,7 +321,9 @@ function parseSigeRows(rows) {
   if (!rows.length) return [];
   const header = rows[0].map(stripAccents);
   const find = (...pats) => header.findIndex((h) => pats.some((p) => h.includes(p)));
-  const iDesc = find("desc grado", "descgrado", "grado");
+  // "Desc Grado" (texto: "1° medio"), NO "Cod Grado" (número). El fallback excluye "cod grado".
+  let iDesc = header.findIndex((h) => h.includes("desc grado") || h.includes("descgrado"));
+  if (iDesc < 0) iDesc = header.findIndex((h) => h.includes("grado") && !h.includes("cod"));
   const iLetra = find("letra");
   const iRun = find("run");
   const iDv = find("digito", "dv");
