@@ -113,6 +113,7 @@ export const api = {
     a.click();
     URL.revokeObjectURL(url);
   },
+  runBackup: () => request("/api/admin/run-backup", { method: "POST", auth: true }),
 
   // --- Registros a nivel establecimiento (mensajes, agenda, gestiones, documental, PME) ---
   listOrgRecords: () => request("/api/org/records", { auth: true }),

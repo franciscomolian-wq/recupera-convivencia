@@ -4038,6 +4038,8 @@ function AdminSystem() {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentMsg, setSentMsg] = useState("");
   const load = () => { setError(""); api.adminStatus().then(setStatus).catch((e) => setError((e && (e.error || e.message)) || "No se pudo cargar el estado.")); };
   useEffect(load, []);
 
@@ -4045,6 +4047,16 @@ function AdminSystem() {
     setDownloading(true); setError("");
     try { await api.downloadBackup(); } catch (e) { setError((e && (e.error || e.message)) || "No se pudo generar el respaldo."); }
     finally { setDownloading(false); }
+  }
+
+  async function sendBackupNow() {
+    setSending(true); setError(""); setSentMsg("");
+    try {
+      const r = await api.runBackup();
+      if (r.sent) setSentMsg(`Respaldo enviado por correo a ${(r.to || []).join(", ")} (${r.sizeKb || "?"} KB).`);
+      else setSentMsg(r.reason === "not-configured" ? "El envío de correos no está configurado." : r.reason === "no-recipient" ? "No hay destinatario. Define la variable BACKUP_EMAIL en Railway." : "No se pudo enviar el respaldo.");
+    } catch (e) { setError((e && (e.error || e.message)) || "No se pudo enviar el respaldo."); }
+    finally { setSending(false); }
   }
 
   const dot = (ok) => <span style={{ background: ok ? C.ok : C.urgent }} className="w-2.5 h-2.5 rounded-full inline-block" />;
@@ -4076,9 +4088,16 @@ function AdminSystem() {
 
       <Section icon={Download} title="Respaldo de datos">
         <p style={{ color: C.textSoft }} className="text-sm mb-3">Descarga una copia completa de todos los datos en formato JSON. No incluye contraseñas ni secretos de 2FA; el relato de los casos va cifrado.</p>
-        <Btn onClick={backup} disabled={downloading}><Download size={15} /> {downloading ? "Generando…" : "Descargar respaldo (JSON)"}</Btn>
-        <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-lg p-3 text-xs mt-4 leading-relaxed">
-          <b>Recomendación:</b> además de esta descarga manual, activa los <b>respaldos automáticos</b> de la base de datos en el panel de Railway (servicio Postgres → Backups) y configura un monitor de disponibilidad gratuito (ej. UptimeRobot) apuntando a <code>/health</code>.
+        <div className="flex gap-2 flex-wrap">
+          <Btn onClick={backup} disabled={downloading}><Download size={15} /> {downloading ? "Generando…" : "Descargar respaldo (JSON)"}</Btn>
+          <Btn variant="ghost" onClick={sendBackupNow} disabled={sending}><Mail size={15} /> {sending ? "Enviando…" : "Enviar respaldo por correo ahora"}</Btn>
+        </div>
+        {sentMsg && <div style={{ color: sentMsg.startsWith("Respaldo enviado") ? C.ok : C.urgent }} className="text-xs mt-2">{sentMsg}</div>}
+        <div style={{ background: C.ok + "18", color: C.ok }} className="rounded-lg p-3 text-xs mt-4 leading-relaxed">
+          <b>Respaldo diario automático activo:</b> cada día a las 07:00 UTC (≈03:00 en Chile) se envía este respaldo por correo al administrador. El destinatario se define con la variable <code>BACKUP_EMAIL</code> en Railway.
+        </div>
+        <div style={{ background: C.adminSoft, color: C.admin }} className="rounded-lg p-3 text-xs mt-3 leading-relaxed">
+          <b>Recomendación adicional:</b> activa también los <b>respaldos nativos</b> de la base de datos en el panel de Railway (servicio Postgres → Backups) y un monitor de disponibilidad gratuito (ej. UptimeRobot) apuntando a <code>/health</code>.
         </div>
       </Section>
     </div>
