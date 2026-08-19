@@ -1323,7 +1323,7 @@ function PortalApp(props) {
         {view === "documental" && <DocumentalPage documents={props.documents} setDocuments={props.setDocuments} cases={cases} role={pageRole} />}
         {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={pageRole} />}
         {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
-        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={pageRole} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
+        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={pageRole} roleKey={session.role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
         {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={pageRole} />}
         {view === "formatos" && <FormatosPage />}
@@ -2910,9 +2910,10 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
 }
 
 /* ------------------------- CASE DETAIL ---------------------------- */
-function CaseDetail({ c, role, setCases, templates, institutions, student, onOpenStudent, onBack }) {
+function CaseDetail({ c, role, roleKey, setCases, templates, institutions, student, onOpenStudent, onBack }) {
   const isFamily = role.scope === "family";
   const isAudit = role.scope === "audit";
+  const canDelete = ["superadmin", "coordinador", "director"].includes(roleKey);
   const [emailOpen, setEmailOpen] = useState(false);
   const [derivOpen, setDerivOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -2959,6 +2960,15 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
       setNotice(r.sent ? { ok: true, text: `Derivación enviada por correo a ${d.label} (${d.email}).` } : { ok: false, text: `Se registró la derivación a ${d.label}, pero el correo no pudo enviarse.` });
     } catch (e) { setNotice({ ok: false, text: "No se pudo enviar la derivación: " + (e?.error || e?.message || "error") }); }
   }
+  // Eliminar el caso (solo dirección/coordinación). Irreversible; queda en auditoría.
+  async function removeCase() {
+    if (!window.confirm(`¿Eliminar definitivamente el caso ${c.id}?\n\nEsta acción NO se puede deshacer: borra el caso y todos sus pasos, evidencia, derivaciones y correos registrados. Úsala solo si el caso se creó por error.`)) return;
+    try {
+      if (c._dbId) await api.deleteCase(c._dbId);
+      setCases((prev) => prev.filter((x) => x.id !== c.id));
+      onBack();
+    } catch (e) { setNotice({ ok: false, text: "No se pudo eliminar el caso: " + (e?.error || e?.message || "error") }); }
+  }
 
   return (
     <div className="max-w-3xl">
@@ -2983,6 +2993,7 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
             {!isAudit && <Btn variant="ghost" onClick={() => setDerivOpen(true)}><Network size={14} /> Derivar</Btn>}
             {!isAudit && <Btn variant="ghost" onClick={() => setEmailOpen(true)}><Mail size={14} /> Notificar</Btn>}
             {!isAudit && !c.closed && <Btn variant="ghost" onClick={() => setCloseOpen(true)}><Lock size={14} /> Cerrar caso</Btn>}
+            {canDelete && <Btn variant="ghost" onClick={removeCase} accent={C.urgent}><Trash2 size={14} /> Eliminar</Btn>}
           </div>
         )}
       </div>
