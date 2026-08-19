@@ -244,17 +244,33 @@ async function ocrPdf(file, onProgress) {
   const pdf = await pdfjs.getDocument({ data }).promise;
   const nPages = Math.min(pdf.numPages, 15);
   const tw = await createWorker("spa");
+
+  // Reconoce una página en una rotación dada; devuelve texto y confianza.
+  async function recog(page, rotation, scale) {
+    const viewport = page.getViewport({ scale, rotation });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    const { data: { text, confidence } } = await tw.recognize(canvas);
+    return { text, confidence };
+  }
+
   let text = "";
   try {
     for (let i = 1; i <= nPages; i++) {
       onProgress && onProgress(`Reconociendo página ${i} de ${nPages}… (puede tardar)`);
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width; canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const { data: { text: t } } = await tw.recognize(canvas);
-      text += t + "\n";
+      // Fotos del teléfono suelen venir rotadas: si la confianza es baja, probamos otras orientaciones.
+      let best = await recog(page, 0, 2);
+      if (best.confidence < 55) {
+        onProgress && onProgress(`Página ${i}: corrigiendo orientación…`);
+        for (const rot of [270, 90, 180]) {
+          const alt = await recog(page, rot, 2);
+          if (alt.confidence > best.confidence) best = alt;
+          if (best.confidence >= 70) break;
+        }
+      }
+      text += best.text + "\n";
     }
   } finally { await tw.terminate(); }
   return text.trim();
