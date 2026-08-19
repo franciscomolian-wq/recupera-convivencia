@@ -119,6 +119,22 @@ export const CASE_TYPES = {
       { title: "Resolución final y notificación con derecho a apelación", days: 15, role: "Director/a", basis: "Ley 21.128 — procedimiento expedito, Ley 20.845 — debido proceso" },
     ],
   },
+  revisionPertenencias: {
+    label: "Revisión de pertenencias (Ley 21.827 Escuelas Protegidas)",
+    relacion: "Establecimiento ↔ Estudiante",
+    levels: ["basica", "media", "adultos"],
+    keywords: ["revisión de mochila", "mochila", "pertenencias", "bolso", "revisar bolso", "registro de pertenencias", "objeto peligroso", "elemento peligroso", "cortaplumas", "escuelas protegidas", "revisar mochila"],
+    network: ["oln", "opd", "carabineros", "super"],
+    steps: [
+      { title: "Verificar que la revisión esté contemplada en el RICE y activar personal autorizado y capacitado", days: 0, role: "Encargado/a de Convivencia", basis: "Ley 21.827 — la medida debe estar en el reglamento interno y ejecutarla personal previamente designado y capacitado" },
+      { title: "Realizar la revisión en lugar designado, sin forzar; si es individual, con al menos dos adultos (uno del equipo de convivencia) en lugar privado", days: 0, role: "Personal designado + Equipo de Convivencia", basis: "Ley 21.827 — resguardos de privacidad; prohibición de revisiones forzosas o de prendas de vestir; revisiones individuales excepcionales con dos adultos" },
+      { title: "Resguardo especial para estudiantes con NEE/discapacidad: acompañamiento del profesional PIE, contención y ajustes razonables", days: 0, role: "Profesional PIE", basis: "Ley 21.827 — no se efectúa contra la objeción del profesional acompañante" },
+      { title: "Levantar registro escrito firmado (identificación, motivos, elementos hallados y horarios) y entregar copia al estudiante y al apoderado, con vía de reclamo", days: 0, role: "Encargado/a de Convivencia", basis: "Ley 21.827 — registro escrito obligatorio con copia e información de reclamos" },
+      { title: "Ante negativa del estudiante: informar de inmediato al apoderado para revisar; si persiste, el apoderado retira las pertenencias y se notifica a la Oficina Local de la Niñez", days: 1, role: "Director/a", basis: "Ley 21.827 — procedimiento ante negativa y aviso a la OLN" },
+      { title: "Si se hallan elementos peligrosos: activar el protocolo de seguridad y la denuncia si procede, con medidas graduadas y proporcionales", days: 1, role: "Director/a", basis: "Ley 21.827 + Ley 21.128 (Aula Segura) — secuencia de intervención graduada; denuncia obligatoria si hay delito" },
+      { title: "Seguimiento formativo con el estudiante y la familia, y registro en el expediente", days: 5, role: "Equipo de Convivencia", basis: "Ley 21.827 — medidas con pertinencia pedagógica y proporcionalidad" },
+    ],
+  },
   discriminacion: {
     label: "Discriminación arbitraria",
     relacion: "Cualquier integrante",
