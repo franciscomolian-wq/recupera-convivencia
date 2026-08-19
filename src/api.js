@@ -61,6 +61,8 @@ export const api = {
   closeCase: (id, summary) => request(`/api/cases/${id}/close`, { method: "POST", body: { summary }, auth: true }),
   stepDone: (id, order) => request(`/api/cases/${id}/steps/${order}/done`, { method: "POST", auth: true }),
   addEvidence: (id, ev) => request(`/api/cases/${id}/evidence`, { method: "POST", body: ev, auth: true }),
+  notifyCase: (id, mail) => request(`/api/cases/${id}/emails`, { method: "POST", body: mail, auth: true }),
+  deriveCase: (id, deriv) => request(`/api/cases/${id}/derivations`, { method: "POST", body: deriv, auth: true }),
 
   // --- Expedientes (estudiantes) ---
   listStudents: () => request("/api/students", { auth: true }),

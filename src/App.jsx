@@ -2917,6 +2917,7 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
   const [derivOpen, setDerivOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [evType, setEvType] = useState({});
+  const [notice, setNotice] = useState(null); // {ok, text}
   const emails = c.emails || [];
 
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
@@ -2936,10 +2937,38 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
       log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }));
     if (c._dbId) api.addEvidence(c._dbId, { type, name, stepOrder: stepId }).catch((e) => console.error("addEvidence", e));
   }
+  // Notificar por correo (envío real + registro persistente).
+  async function doNotify(mail) {
+    setEmailOpen(false);
+    update((x) => ({ ...x, notifiedApoderado: true, emails: [...(x.emails || []), { to: mail.to, subject: mail.subject, at: new Date().toISOString().slice(0, 10) }],
+      log: [...x.log, { at: new Date(), who: role.label, text: `Correo enviado a ${mail.to}: ${mail.subject}` }] }));
+    if (!c._dbId) { setNotice({ ok: false, text: "Este caso no está guardado en la base de datos; el correo no se envió." }); return; }
+    try {
+      const r = await api.notifyCase(c._dbId, mail);
+      setNotice(r.sent ? { ok: true, text: `Correo enviado a ${mail.to}.` } : { ok: false, text: "Se registró el aviso, pero el correo no pudo enviarse. Revisa la configuración de correo." });
+    } catch (e) { setNotice({ ok: false, text: "No se pudo enviar el correo: " + (e?.error || e?.message || "error") }); }
+  }
+  // Derivar a institución (envío del oficio por correo + registro persistente).
+  async function doDerive(d) {
+    setDerivOpen(false);
+    update((x) => ({ ...x, derivations: [...(x.derivations || []), { label: d.label, email: d.email }],
+      log: [...x.log, { at: new Date(), who: role.label, text: `Derivación enviada a ${d.label} (${d.email}).` }] }));
+    if (!c._dbId) { setNotice({ ok: false, text: "Este caso no está guardado; la derivación no se envió." }); return; }
+    try {
+      const r = await api.deriveCase(c._dbId, d);
+      setNotice(r.sent ? { ok: true, text: `Derivación enviada por correo a ${d.label} (${d.email}).` } : { ok: false, text: `Se registró la derivación a ${d.label}, pero el correo no pudo enviarse.` });
+    } catch (e) { setNotice({ ok: false, text: "No se pudo enviar la derivación: " + (e?.error || e?.message || "error") }); }
+  }
 
   return (
     <div className="max-w-3xl">
       <button onClick={onBack} style={{ color: C.textSoft }} className="text-xs mb-4 flex items-center gap-1 print:hidden">← Volver</button>
+      {notice && (
+        <div style={{ background: notice.ok ? C.ok + "18" : "#FCE8E6", color: notice.ok ? C.ok : C.urgent, border: `1px solid ${notice.ok ? C.ok : C.urgent}` }} className="rounded-lg px-3 py-2 mb-4 text-sm flex items-start justify-between gap-2 print:hidden">
+          <span className="flex items-center gap-2">{notice.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}{notice.text}</span>
+          <button onClick={() => setNotice(null)} style={{ color: "inherit" }}><X size={15} /></button>
+        </div>
+      )}
       <div className="flex items-start justify-between mb-1 gap-3 flex-wrap">
         <div className="flex items-stretch gap-3">
           <div style={{ background: caseColor(c.typeKey) }} className="w-1 rounded-full shrink-0" />
@@ -3078,10 +3107,8 @@ function CaseDetail({ c, role, setCases, templates, institutions, student, onOpe
         </div>
       )}
 
-      {emailOpen && <EmailModal c={c} templates={templates} onClose={() => setEmailOpen(false)}
-        onSend={(mail) => { update((x) => ({ ...x, notifiedApoderado: true, emails: [...(x.emails || []), mail], log: [...x.log, { at: new Date(), who: role.label, text: `Correo enviado: ${mail.subject}` }] })); setEmailOpen(false); }} />}
-      {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)}
-        onDerive={(d) => { update((x) => ({ ...x, derivations: [...x.derivations, d], log: [...x.log, { at: new Date(), who: role.label, text: `Derivación enviada a ${d.label} (${d.email}).` }] })); setDerivOpen(false); }} />}
+      {emailOpen && <EmailModal c={c} templates={templates} onClose={() => setEmailOpen(false)} onSend={doNotify} />}
+      {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)} onDerive={doDerive} />}
       {closeOpen && <CloseCaseModal onClose={() => setCloseOpen(false)} onConfirm={closeCase} />}
     </div>
   );
@@ -3102,21 +3129,24 @@ function CloseCaseModal({ onClose, onConfirm }) {
 function EmailModal({ c, templates, onClose, onSend }) {
   const keys = Object.keys(templates);
   const [tk, setTk] = useState(keys[0]);
+  const [to, setTo] = useState(c.apoderadoEmail || "");
   const tpl = templates[tk];
   const subject = fillTemplate(tpl.subject, c);
   const body = fillTemplate(tpl.body, c);
+  const valid = /\S+@\S+\.\S+/.test(to.trim());
   return (
     <Modal onClose={onClose} title="Enviar correo al apoderado/a">
       <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Plantilla</label>
       <select value={tk} onChange={(e) => setTk(e.target.value)} className="mt-1.5 mb-3 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
         {keys.map((k) => <option key={k} value={k}>{templates[k].label}</option>)}
       </select>
-      <div style={{ color: C.textSoft }} className="text-xs mb-1">Para: {c.apoderadoEmail || "apoderado@correo.cl"}</div>
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Correo del destinatario</label>
+      <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="apoderado@correo.cl" className="mt-1.5 mb-3 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${valid || !to ? C.cardBorder : C.urgent}`, color: C.text }} />
       <div style={{ color: C.text }} className="text-sm font-medium mb-3">Asunto: {subject}</div>
       <div style={{ borderTop: `1px solid ${C.cardBorder}`, color: C.text }} className="pt-3 text-sm whitespace-pre-line">{body}</div>
       <div className="flex gap-2 justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
-        <Btn onClick={() => onSend({ to: c.apoderadoEmail || "apoderado@correo.cl", subject, at: new Date().toISOString().slice(0, 10) })}><Send size={14} /> Enviar</Btn>
+        <Btn onClick={() => valid && onSend({ to: to.trim(), subject, body })} disabled={!valid}><Send size={14} /> Enviar</Btn>
       </div>
     </Modal>
   );
@@ -3127,6 +3157,8 @@ function DerivationModal({ c, institutions, onClose, onDerive }) {
   const [instId, setInstId] = useState(suggested[0] || institutions[0]?.id);
   const [email, setEmail] = useState(institutions.find((i) => i.id === (suggested[0] || institutions[0]?.id))?.email || "");
   const inst = institutions.find((i) => i.id === instId);
+  const validEmail = /\S+@\S+\.\S+/.test(email.trim());
+  const oficio = `Estimados ${inst?.label || "institución"}:\n\nPor medio del presente, el establecimiento deriva a su institución el siguiente caso de convivencia escolar para su conocimiento y gestión según corresponda:\n\n• Código del caso: ${c.id}\n• Tipo: ${c.type.label}\n• Estudiante(s) / involucrados: ${c.studentLabel || "-"}${c.curso ? `\n• Curso: ${c.curso}` : ""}${c.fechaHecho ? `\n• Fecha del hecho: ${c.fechaHecho}` : ""}${c.lugar ? `\n• Lugar: ${c.lugar}` : ""}\n\nQuedamos atentos a su respuesta.`;
   return (
     <Modal onClose={onClose} title="Derivar a institución">
       <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Institución</label>
@@ -3134,8 +3166,9 @@ function DerivationModal({ c, institutions, onClose, onDerive }) {
         {institutions.map((i) => <option key={i.id} value={i.id}>{i.label}{suggested.includes(i.id) ? " (sugerida)" : ""}</option>)}
       </select>
       <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Correo de destino</label>
-      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@institucion.cl" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
-      <div className="flex gap-2 justify-end mt-4"><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={() => email && onDerive({ label: inst.label, email })} accent={C.seal}><Send size={14} /> Enviar derivación</Btn></div>
+      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@institucion.cl" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${validEmail || !email ? C.cardBorder : C.urgent}`, color: C.text }} />
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-2">Se enviará un oficio por correo a la institución con los datos del caso (código, tipo, estudiante/involucrados y fecha), y quedará registrado en el caso.</p>
+      <div className="flex gap-2 justify-end mt-4"><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={() => validEmail && onDerive({ label: inst.label, email: email.trim(), subject: `Derivación de caso ${c.id} · ${c.type.label}`, body: oficio })} disabled={!validEmail} accent={C.seal}><Send size={14} /> Enviar derivación</Btn></div>
     </Modal>
   );
 }
