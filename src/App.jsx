@@ -394,6 +394,8 @@ function App() {
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null);
   const [resetTok, setResetTok] = useState(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") : null);
+  const [citacionTok, setCitacionTok] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("citacion") : null);
   const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -458,6 +460,8 @@ function App() {
     return <Activate token={inviteToken} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setInviteToken(null); }} />;
   if (!session && resetTok)
     return <ResetPassword token={resetTok} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); }} />;
+  if (citacionTok)
+    return <CitacionConfirm token={citacionTok} onClose={() => { window.history.replaceState({}, "", window.location.pathname); setCitacionTok(null); }} />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
@@ -892,6 +896,73 @@ function ResetPassword({ token, onDone, onCancel }) {
               {loading ? "Guardando…" : "Cambiar contraseña e ingresar"}
             </button>
           </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   CONFIRMACIÓN DE CITACIÓN — página pública desde el enlace del correo
+   ---------------------------------------------------------------- */
+function CitacionConfirm({ token, onClose }) {
+  const [info, setInfo] = useState(null);
+  const [invalid, setInvalid] = useState("");
+  const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.getCitacion(token)
+      .then((d) => { setInfo(d); if (d.confirmed) setDone(true); })
+      .catch((err) => setInvalid((err && (err.error || err.message)) || "El enlace no es válido o venció."));
+  }, [token]);
+
+  async function confirmar() {
+    setLoading(true);
+    try { await api.confirmCitacion(token); setDone(true); }
+    catch (err) { setInvalid((err && (err.error || err.message)) || "No se pudo confirmar."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center"><CalendarClock size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Citación de apoderado</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Recupera Convivencia</div>
+          </div>
+        </div>
+        {invalid ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2"><AlertTriangle size={16} /> {invalid}</div>
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff" }}>Cerrar</button>
+          </div>
+        ) : !info ? (
+          <div style={{ color: C.textSoft }} className="text-sm">Cargando la citación…</div>
+        ) : done ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: C.ok + "18", color: C.ok, border: `1px solid ${C.ok}` }} className="text-sm rounded-lg px-3 py-3 flex items-center gap-2"><CheckCircle2 size={18} /> ¡Asistencia confirmada! Gracias. El establecimiento ya quedó notificado.</div>
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
+              <div style={{ color: C.ink }} className="font-medium">{info.motivo}</div>
+              <div style={{ color: C.textSoft }} className="text-xs mt-0.5">Estudiante: {info.studentName} · {info.fecha}{info.hora ? ` ${info.hora}` : ""}</div>
+            </div>
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: "#fff", color: C.ink, border: `1px solid ${C.cardBorder}` }}>Cerrar</button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p style={{ color: C.textSoft }} className="text-sm">Estimado/a {info.apoderado || "apoderado/a"}, se le cita a una reunión en el establecimiento:</p>
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm flex flex-col gap-1">
+              <div><span style={{ color: C.textSoft }}>Estudiante: </span><span style={{ color: C.ink }}>{info.studentName}</span></div>
+              <div><span style={{ color: C.textSoft }}>Motivo: </span><span style={{ color: C.ink }}>{info.motivo}</span></div>
+              <div><span style={{ color: C.textSoft }}>Fecha: </span><span style={{ color: C.ink }}>{info.fecha || "por confirmar"}{info.hora ? ` · ${info.hora}` : ""}</span></div>
+            </div>
+            <button onClick={confirmar} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
+              {loading ? "Confirmando…" : "Confirmar asistencia"}
+            </button>
+            <p style={{ color: C.textSoft }} className="text-[11px] text-center">Si no puedes asistir, comunícate con el establecimiento para reagendar.</p>
+          </div>
         )}
       </div>
     </div>
@@ -2365,8 +2436,8 @@ function ApoderadosPage({ students, setStudents, role }) {
   function updItem(kind, id, patch) { updStudentRec(setStudents, sid, kind, id, patch); }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const citColor = { Pendiente: C.warn, Confirmada: C.ok, Reagendar: C.admin };
-  const firmar = (kind, id) => updItem(kind, id, { firma: { por: s.apoderadoNombre, at: new Date().toISOString().slice(0, 10) } });
-  const firmaTag = (f) => f ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1"><PenLine size={11} /> Firmado por {f.por} · {f.at}</span> : null;
+  const firmar = (kind, id) => updItem(kind, id, { firma: { por: s.apoderadoNombre, at: new Date().toISOString().slice(0, 10), via: "presencial" } });
+  const firmaTag = (f) => f ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1"><PenLine size={11} /> Confirmado por {f.por} · {f.at}{f.via === "enlace" ? " · por enlace" : " · presencial"}</span> : null;
 
   return (
     <div className="max-w-3xl">
@@ -2390,23 +2461,33 @@ function ApoderadosPage({ students, setStudents, role }) {
                     <div><span style={{ color: C.ink }} className="font-medium">{c.motivo}</span> <span style={{ color: C.textSoft }}>· {c.fecha} {c.hora}{c.nuevaFecha ? ` → reagenda: ${c.nuevaFecha}` : ""}</span></div>
                     <span style={{ background: (citColor[c.estado] || C.textSoft) + "22", color: citColor[c.estado] || C.textSoft }} className="text-[11px] font-medium px-2 py-0.5 rounded-full">{c.estado}</span>
                   </div>
-                  {c.firma && <div className="mt-1.5">{firmaTag(c.firma)}</div>}
+                  <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {c.firma && firmaTag(c.firma)}
+                    {c.emailSent && !c.firma && <span style={{ background: C.adminSoft, color: C.admin }} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1"><Mail size={11} /> Correo enviado · esperando confirmación</span>}
+                  </div>
                   {!readOnly && (
                     <div className="flex items-center gap-2 mt-2 flex-wrap print:hidden">
                       <select value={c.estado} onChange={(e) => updItem("citacionesApo", c.id, { estado: e.target.value })} className="rounded-md p-1.5 text-xs" style={inp}><option>Pendiente</option><option>Confirmada</option><option>Reagendar</option></select>
                       {c.estado === "Reagendar" && <input type="date" value={c.nuevaFecha || ""} onChange={(e) => updItem("citacionesApo", c.id, { nuevaFecha: e.target.value })} className="rounded-md p-1.5 text-xs" style={inp} />}
-                      {!c.firma && <button onClick={() => firmar("citacionesApo", c.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Firma digital</button>}
+                      {!c.firma && <button onClick={() => firmar("citacionesApo", c.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Registrar conformidad (presencial)</button>}
                     </div>
                   )}
                 </div>
               ))}
             </div>
             {!readOnly && (
-              <div className="flex flex-wrap gap-2 print:hidden">
-                <input type="date" value={cita.fecha} onChange={(e) => setCita({ ...cita, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
-                <input type="time" value={cita.hora} onChange={(e) => setCita({ ...cita, hora: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
-                <input value={cita.motivo} onChange={(e) => setCita({ ...cita, motivo: e.target.value })} placeholder="Motivo de la citación" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
-                <Btn onClick={() => { if (cita.motivo.trim()) { add("citacionesApo", { ...cita, estado: "Pendiente", nuevaFecha: "", firma: null }); setCita({ fecha: "", hora: "", motivo: "" }); } }}><Send size={14} /> Citar</Btn>
+              <div className="print:hidden">
+                <div className="flex flex-wrap gap-2">
+                  <input type="date" value={cita.fecha} onChange={(e) => setCita({ ...cita, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                  <input type="time" value={cita.hora} onChange={(e) => setCita({ ...cita, hora: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+                  <input value={cita.motivo} onChange={(e) => setCita({ ...cita, motivo: e.target.value })} placeholder="Motivo de la citación" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
+                  <Btn onClick={() => { if (cita.motivo.trim()) { add("citacionesApo", { ...cita, estado: "Pendiente", nuevaFecha: "", firma: null }); setCita({ fecha: "", hora: "", motivo: "" }); } }}><Send size={14} /> Citar</Btn>
+                </div>
+                <div style={{ color: s.apoderadoEmail ? C.textSoft : C.warn }} className="text-[11px] mt-2">
+                  {s.apoderadoEmail
+                    ? `Al citar se enviará un correo a ${s.apoderadoEmail} con un enlace para que el apoderado confirme su asistencia.`
+                    : "Este estudiante no tiene correo de apoderado registrado: no se enviará correo (agrégalo en el expediente para habilitarlo)."}
+                </div>
               </div>
             )}
           </ExpBlock>
@@ -2420,7 +2501,7 @@ function ApoderadosPage({ students, setStudents, role }) {
                     <span style={{ color: C.textSoft }}>{a.fecha}</span>
                   </div>
                   <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                    {a.firma ? firmaTag(a.firma) : (!readOnly && <button onClick={() => firmar("acuerdosApo", a.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1 print:hidden" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Firma digital</button>)}
+                    {a.firma ? firmaTag(a.firma) : (!readOnly && <button onClick={() => firmar("acuerdosApo", a.id)} className="text-xs px-2.5 py-1.5 rounded-md inline-flex items-center gap-1 print:hidden" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><PenLine size={12} /> Registrar conformidad (presencial)</button>)}
                   </div>
                 </div>
               ))}

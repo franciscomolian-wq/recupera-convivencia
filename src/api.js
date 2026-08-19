@@ -81,6 +81,8 @@ export const api = {
 
   // --- Registros genéricos del expediente (inspectoría, PIE, apoderados) ---
   addStudentRecord: (sid, kind, data) => request(`/api/students/${sid}/records`, { method: "POST", body: { kind, data }, auth: true }),
+  getCitacion: (token) => request(`/api/students/citacion/${token}`),
+  confirmCitacion: (token) => request(`/api/students/citacion/${token}/confirm`, { method: "POST" }),
   updateStudentRecord: (rid, data) => request(`/api/students/records/${rid}`, { method: "PATCH", body: { data }, auth: true }),
   deleteStudentRecord: (rid) => request(`/api/students/records/${rid}`, { method: "DELETE", auth: true }),
 
