@@ -2439,7 +2439,11 @@ function AlertsPage({ cases, students, gestiones, onOpenCase, onOpenStudent, onG
 /* =================== MÓDULO 7 — COMUNICACIÓN APODERADOS ========== */
 function ApoderadosPage({ students, setStudents, role }) {
   const readOnly = role.scope === "audit";
-  const [sid, setSid] = useState(students[0]?.id);
+  const [sid, setSid] = useState("");
+  const [q, setQ] = useState("");
+  const [nivel, setNivel] = useState("");
+  const [grado, setGrado] = useState("");
+  const [letra, setLetra] = useState("");
   const s = students.find((x) => x.id === sid);
   const [cita, setCita] = useState({ fecha: "", hora: "", motivo: "" });
   const [acu, setAcu] = useState({ fecha: "", acuerdo: "" });
@@ -2451,18 +2455,63 @@ function ApoderadosPage({ students, setStudents, role }) {
   const firmar = (kind, id) => updItem(kind, id, { firma: { por: s.apoderadoNombre, at: new Date().toISOString().slice(0, 10), via: "presencial" } });
   const firmaTag = (f) => f ? <span style={{ background: C.ok + "22", color: C.ok }} className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1"><PenLine size={11} /> Confirmado por {f.por} · {f.at}{f.via === "enlace" ? " · por enlace" : " · presencial"}</span> : null;
 
+  const enriched = students.map((x) => ({ x, ...courseParts(x) }));
+  const uniqA = (a) => [...new Set(a.filter(Boolean))];
+  const niveles = uniqA(enriched.map((e) => e.nivel));
+  const grados = uniqA(enriched.filter((e) => e.nivel === nivel).map((e) => e.grado)).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  const letras = uniqA(enriched.filter((e) => e.nivel === nivel && e.grado === grado).map((e) => e.letra)).sort();
+  const query = q.trim().toLowerCase();
+  const matches = enriched.filter((e) => (!nivel || e.nivel === nivel) && (!grado || e.grado === grado) && (!letra || e.letra === letra) && (!query || `${e.x.name} ${e.x.rut || ""} ${e.x.curso || ""}`.toLowerCase().includes(query))).slice(0, 60);
+  const Sel = ({ value, onChange, children, disabled }) => (
+    <select value={value} onChange={onChange} disabled={disabled} className="rounded-md p-2 text-sm" style={{ ...inp, opacity: disabled ? 0.5 : 1 }}>{children}</select>
+  );
+
   return (
     <div className="max-w-3xl">
       <PageHead title="Comunicación con apoderados" subtitle="Citaciones con confirmación y reagendamiento, entrevistas y acuerdos con seguimiento, firma digital y documentos enviados. Todo queda en el historial del apoderado." right={<Toolbar onPrint={printView} onExport={() => exportJSON(students, "apoderados.json")} />} />
-      <div className="mb-4 print:hidden">
-        <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Estudiante</label>
-        <select value={sid} onChange={(e) => setSid(e.target.value)} className="mt-1.5 w-full max-w-sm rounded-md p-2.5 text-sm" style={inp}>{students.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.curso}</option>)}</select>
-      </div>
+      {!s && (
+        <div className="print:hidden">
+          <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 mb-3 flex flex-col gap-3">
+            <div className="relative">
+              <Search size={15} color={C.textSoft} className="absolute left-3 top-1/2 -translate-y-1/2" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar estudiante por nombre, RUT o curso…" className="w-full rounded-md p-2.5 pl-9 text-sm" style={inp} />
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <Sel value={nivel} onChange={(e) => { setNivel(e.target.value); setGrado(""); setLetra(""); }}><option value="">Todos los niveles</option>{niveles.map((n) => <option key={n} value={n}>{LEVELS[n] || n}</option>)}</Sel>
+              <Sel value={grado} onChange={(e) => { setGrado(e.target.value); setLetra(""); }} disabled={!nivel}><option value="">Todos los grados</option>{grados.map((g) => <option key={g} value={g}>{g}</option>)}</Sel>
+              <Sel value={letra} onChange={(e) => setLetra(e.target.value)} disabled={!grado}><option value="">Todas las letras</option>{letras.map((l) => <option key={l} value={l}>{l || "(sin letra)"}</option>)}</Sel>
+              {(q || nivel || grado || letra) && <button onClick={() => { setQ(""); setNivel(""); setGrado(""); setLetra(""); }} style={{ color: C.primary }} className="text-xs flex items-center gap-1"><X size={13} /> Limpiar</button>}
+              <span style={{ color: C.textSoft }} className="text-xs ml-auto">{matches.length} de {students.length}</span>
+            </div>
+          </div>
+          {students.length === 0 ? (
+            <div style={{ color: C.textSoft }} className="text-sm text-center py-6">Aún no hay estudiantes. Impórtalos en “Cursos”.</div>
+          ) : (
+            <>
+              <div style={{ color: C.textSoft }} className="text-xs mb-2">Selecciona un estudiante para gestionar la comunicación con su apoderado:</div>
+              <div className="flex flex-col gap-2">
+                {matches.map(({ x }) => (
+                  <button key={x.id} onClick={() => setSid(x.id)} className="text-left">
+                    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 flex items-center gap-3 hover:shadow-sm transition">
+                      <div style={{ background: C.primary }} className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"><UserCircle size={16} color="#fff" /></div>
+                      <span style={{ color: C.ink }} className="text-sm flex-1">{x.name}<span style={{ color: C.textSoft }} className="text-xs"> · {x.curso || "sin curso"}</span></span>
+                      <span style={{ color: x.apoderadoEmail ? C.ok : C.textSoft }} className="text-[11px]">{x.apoderadoEmail ? "con correo" : "sin correo"}</span>
+                      <ChevronRight size={15} color={C.textSoft} />
+                    </div>
+                  </button>
+                ))}
+                {matches.length === 0 && <div style={{ color: C.textSoft }} className="text-sm text-center py-4">Sin coincidencias.</div>}
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {s && (
         <>
           <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4 flex items-center gap-3">
             <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"><UserCircle size={20} color="#fff" /></div>
             <div><div style={{ color: C.ink }} className="text-sm font-medium">{s.apoderadoNombre || "Apoderado/a"}</div><div style={{ color: C.textSoft }} className="text-xs">{s.apoderadoEmail || "sin correo"} · apoderado/a de {s.name}</div></div>
+            <button onClick={() => setSid("")} style={{ color: C.primary }} className="text-xs ml-auto print:hidden flex items-center gap-1 shrink-0">← Cambiar estudiante</button>
           </div>
 
           <ExpBlock icon={CalendarClock} title={`Citaciones (${(s.citacionesApo || []).length})`}>
