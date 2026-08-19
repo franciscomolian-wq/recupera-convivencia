@@ -40,6 +40,10 @@ const C = {
 };
 const serif = { fontFamily: "'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif", fontWeight: 500 };
 const mono = { fontFamily: "'Roboto Mono', ui-monospace, monospace" };
+// Logo institucional (alojado en /recupera-logo.png). Reemplaza el ícono genérico.
+function BrandLogo({ height = 36 }) {
+  return <img src="/recupera-logo.png" alt="Recupera Convivencia" style={{ height, width: "auto", display: "block" }} />;
+}
 
 /* ------------------- ADAPTADORES API ↔ UI -------------------------
    La UI trabaja con un objeto de caso "rico" (con type/steps/fechas).
@@ -638,14 +642,9 @@ function Login({ onLogin }) {
   return (
     <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
       <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-md shadow-sm">
-        <div className="flex items-center gap-2.5 mb-6">
-          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center">
-            <Scale size={19} color="#fff" />
-          </div>
-          <div>
-            <div style={{ ...serif, color: C.ink }} className="text-lg">Recupera Convivencia</div>
-            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Ingreso a la plataforma</div>
-          </div>
+        <div className="mb-6">
+          <BrandLogo height={42} />
+          <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase mt-2.5">Ingreso a la plataforma</div>
         </div>
 
         {forgot && <p style={{ color: C.textSoft }} className="text-sm mb-3">Ingresa tu RUT y te enviaremos un enlace a tu correo para crear una nueva contraseña.</p>}
@@ -1438,11 +1437,7 @@ function Sidebar({ navKeys, navMap, view, setView, openCase, session, role, onLo
       {/* Marca + barra de 4 colores de Google */}
       <div className="px-5 pt-6 pb-4">
         <div className="flex items-center gap-3">
-          <div style={{ background: C.primary, boxShadow: "0 2px 6px rgba(26,115,232,.35)" }} className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"><Scale size={19} color="#fff" /></div>
-          <div>
-            <div style={{ ...serif, color: C.ink }} className="text-[17px] leading-tight">Recupera Convivencia</div>
-            <div style={{ ...mono, color: C.sidebarTextSoft }} className="text-[9.5px] tracking-widest uppercase">Convivencia educativa</div>
-          </div>
+          <BrandLogo height={36} />
           <button onClick={() => setMobileOpen && setMobileOpen(false)} className="lg:hidden ml-auto" style={{ color: C.sidebarTextSoft }} aria-label="Cerrar menú"><X size={20} /></button>
         </div>
         <div className="flex h-1 rounded-full overflow-hidden mt-4">
