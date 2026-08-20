@@ -434,6 +434,7 @@ function App() {
   const [protocols, setProtocols] = useState([]);
   const [permset, setPermset] = useState(null);
   const [courseTeachers, setCourseTeachers] = useState(null);
+  const [reconCategories, setReconCategories] = useState([]);
 
   // Restaura la sesión si hay un token guardado (recarga de página).
   useEffect(() => {
@@ -469,13 +470,14 @@ function App() {
         setPermset(ps[0] || null);
         const ct = by("courseTeacher");
         setCourseTeachers(ct[0] || null);
+        setReconCategories(by("reconCategory"));
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCourseTeachers(null); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCourseTeachers(null); setReconCategories([]); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -492,7 +494,7 @@ function App() {
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
     documents, setDocuments, acciones, setAcciones, protocols, setProtocols, permset, setPermset,
-    courseTeachers, setCourseTeachers,
+    courseTeachers, setCourseTeachers, reconCategories, setReconCategories,
   };
 
   const role = ROLES[session.role];
@@ -1407,7 +1409,7 @@ function PortalApp(props) {
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} onOpenStudent={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
-        {view === "reconocimientos" && <ReconocimientosPage students={students} setStudents={setStudents} role={pageRole} onOpenStudent={openStudent} />}
+        {view === "reconocimientos" && <ReconocimientosPage students={students} setStudents={setStudents} role={pageRole} roleKey={session.role} onOpenStudent={openStudent} customCats={props.reconCategories} setCustomCats={props.setReconCategories} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
         {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={pageRole} />}
         {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={pageRole} />}
@@ -1947,10 +1949,11 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
                 : <div className="flex flex-col gap-2">
                     {recs.slice().reverse().map((r, i) => {
                       const c = RECON_CATEGORIES.find((x) => x.key === r.categoria) || {};
+                      const col = r.categoriaColor || c.color || C.ok;
                       return (
                         <div key={r.id || i} style={{ background: C.paper, border: `1px solid ${C.cardBorder}` }} className="rounded-md p-2.5 text-sm">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span style={{ background: (c.color || C.ok) + "18", color: c.color || C.ok }} className="text-[11px] px-2 py-0.5 rounded-full">{c.emoji || "🌟"} {r.categoriaLabel || c.label || "Reconocimiento"}</span>
+                            <span style={{ background: col + "18", color: col }} className="text-[11px] px-2 py-0.5 rounded-full">{r.categoriaEmoji || c.emoji || "🌟"} {r.categoriaLabel || c.label || "Reconocimiento"}</span>
                             <span style={{ color: C.textSoft }} className="text-xs ml-auto">{r.fecha}</span>
                           </div>
                           {r.descripcion && <div style={{ color: C.text }} className="mt-1">{r.descripcion}</div>}
@@ -2625,8 +2628,12 @@ function ApoderadosPage({ students, setStudents, role }) {
 }
 
 /* =================== CONVIVENCIA POSITIVA (RECONOCIMIENTOS) =============== */
-function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
+function ReconocimientosPage({ students, setStudents, role, roleKey, onOpenStudent, customCats, setCustomCats }) {
   const readOnly = role.scope === "audit";
+  const canManageCats = ["superadmin", "coordinador", "director"].includes(roleKey);
+  const CATS = [...RECON_CATEGORIES, ...(customCats || [])];
+  const [newCat, setNewCat] = useState({ label: "", emoji: "⭐", color: "#1A73E8" });
+  const [showCats, setShowCats] = useState(false);
   const [sid, setSid] = useState("");
   const [q, setQ] = useState("");
   const [nivel, setNivel] = useState("");
@@ -2639,7 +2646,7 @@ function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
   const [notice, setNotice] = useState(null);
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const s = students.find((x) => x.id === sid);
-  const catOf = (k) => RECON_CATEGORIES.find((c) => c.key === k) || {};
+  const catOf = (k) => CATS.find((c) => c.key === k) || {};
   const badgeFor = (n) => RECON_BADGES.find((b) => n >= b.min);
 
   // Todos los reconocimientos (aplanados) para estadísticas.
@@ -2648,7 +2655,7 @@ function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
   const total = all.length;
   const month = new Date().toISOString().slice(0, 7);
   const thisMonth = all.filter((r) => String(r.fecha || "").startsWith(month));
-  const byCat = RECON_CATEGORIES.map((c) => ({ ...c, n: all.filter((r) => r.categoria === c.key).length })).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
+  const byCat = CATS.map((c) => ({ ...c, n: all.filter((r) => r.categoria === c.key).length })).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
   const cntStudentMonth = {};
   thisMonth.forEach((r) => { cntStudentMonth[r.studentId] = (cntStudentMonth[r.studentId] || 0) + 1; });
   const topMonth = Object.entries(cntStudentMonth).map(([id, n]) => ({ id, n, name: students.find((x) => x.id === id)?.name, curso: students.find((x) => x.id === id)?.curso })).sort((a, b) => b.n - a.n).slice(0, 5);
@@ -2672,7 +2679,7 @@ function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
     setSaving(true); setNotice(null);
     const c = catOf(cat);
     const willEmail = avisar && !!s?.apoderadoEmail;
-    const rec = { categoria: cat, categoriaLabel: c.label, categoriaEmoji: c.emoji, descripcion: desc.trim(), fecha: new Date().toISOString().slice(0, 10), otorgadoPor: role.label, avisarFamilia: willEmail };
+    const rec = { categoria: cat, categoriaLabel: c.label, categoriaEmoji: c.emoji, categoriaColor: c.color, descripcion: desc.trim(), fecha: new Date().toISOString().slice(0, 10), otorgadoPor: role.label, avisarFamilia: willEmail };
     try {
       const r = await api.addStudentRecord(sid, "reconocimiento", rec);
       setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, reconocimientos: [...(x.reconocimientos || []), { id: r.id, ...(r.data || rec) }] } : x)));
@@ -2681,10 +2688,41 @@ function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
     } catch (e) { setNotice({ ok: false, text: "No se pudo registrar: " + (e?.error || e?.message || "error") }); }
     setSaving(false);
   }
+  async function addCategoria() {
+    const label = newCat.label.trim();
+    if (!label) return;
+    const key = "c_" + label.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "").slice(0, 18) + "_" + Math.floor(Math.random() * 900 + 100);
+    await orgAdd(setCustomCats, "reconCategory", { key, label, emoji: (newCat.emoji || "⭐").trim() || "⭐", color: newCat.color || "#1A73E8" }, { prepend: false });
+    setNewCat({ label: "", emoji: "⭐", color: "#1A73E8" });
+  }
+  const delCategoria = (id) => orgDelete(setCustomCats, id);
 
   return (
     <div className="max-w-3xl">
       <PageHead title="Convivencia positiva" subtitle="Reconoce las acciones positivas de los estudiantes: solidaridad, buen trato, esfuerzo y más. Queda en su expediente y, si quieres, felicitamos a la familia por correo." right={<Toolbar onPrint={printView} />} />
+
+      {canManageCats && (
+        <div className="mb-4 print:hidden">
+          <button onClick={() => setShowCats(!showCats)} style={{ color: C.primary }} className="text-xs flex items-center gap-1"><Settings size={13} /> {showCats ? "Ocultar categorías propias" : "Gestionar categorías propias del establecimiento"}</button>
+          {showCats && (
+            <div style={{ background: C.cardBg, border: `1px dashed ${C.cardBorder}` }} className="rounded-lg p-3 mt-2">
+              <div style={{ color: C.textSoft }} className="text-xs mb-2">Crea categorías propias (además de las base), según el sello o PEI de tu establecimiento. Se usan al reconocer y en las estadísticas.</div>
+              <div className="flex gap-2 flex-wrap items-center mb-3">
+                <input value={newCat.emoji} onChange={(e) => setNewCat({ ...newCat, emoji: e.target.value.slice(0, 2) })} placeholder="⭐" className="w-14 text-center rounded-md p-2 text-sm" style={inp} />
+                <input value={newCat.label} onChange={(e) => setNewCat({ ...newCat, label: e.target.value })} placeholder="Nombre (ej: Sello Verde, Espíritu deportivo)" className="rounded-md p-2 text-sm flex-1 min-w-[180px]" style={inp} />
+                <input type="color" value={newCat.color} onChange={(e) => setNewCat({ ...newCat, color: e.target.value })} className="w-10 h-9 rounded-md cursor-pointer" style={{ border: `1px solid ${C.cardBorder}` }} title="Color" />
+                <Btn onClick={addCategoria} disabled={!newCat.label.trim()}><Plus size={14} /> Agregar</Btn>
+              </div>
+              {(customCats || []).length === 0 ? <div style={{ color: C.textSoft }} className="text-xs">Aún no has creado categorías propias.</div>
+                : <div className="flex flex-wrap gap-2">
+                    {(customCats || []).map((c) => (
+                      <span key={c.id} style={{ background: (c.color || C.primary) + "18", color: c.color || C.primary, border: `1px solid ${C.cardBorder}` }} className="text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1.5">{c.emoji} {c.label}<button onClick={() => delCategoria(c.id)} title="Eliminar" className="ml-0.5"><X size={12} /></button></span>
+                    ))}
+                  </div>}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Estadísticas */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -2766,7 +2804,7 @@ function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
               </div>
               <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Categoría</label>
               <div className="flex flex-wrap gap-2 mt-1.5 mb-3">
-                {RECON_CATEGORIES.map((c) => (
+                {CATS.map((c) => (
                   <button key={c.key} onClick={() => setCat(c.key)} className="text-sm px-3 py-1.5 rounded-full transition"
                     style={{ background: cat === c.key ? c.color : "#fff", color: cat === c.key ? "#fff" : C.text, border: `1px solid ${cat === c.key ? c.color : C.cardBorder}` }}>{c.emoji} {c.label}</button>
                 ))}
