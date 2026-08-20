@@ -89,6 +89,7 @@ export const api = {
   // --- Motor de protocolos (recomienda desde el manual) ---
   protocolAiStatus: () => request("/api/protocols/status", { auth: true }),
   recommendProtocol: (typeLabel, nationalSteps, manualText) => request("/api/protocols/recommend", { method: "POST", body: { typeLabel, nationalSteps, manualText }, auth: true }),
+  analyzeCase: (relato, types) => request("/api/protocols/analyze", { method: "POST", body: { relato, types }, auth: true }),
 
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),

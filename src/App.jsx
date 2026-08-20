@@ -2728,6 +2728,19 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
   const [level, setLevel] = useState("basica");
   const [relato, setRelato] = useState("");
   const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  async function analizar() {
+    if (!relato.trim() || analyzing) return;
+    setAnalyzing(true);
+    try {
+      const types = Object.entries(CASE_TYPES).map(([key, v]) => ({ key, label: v.label }));
+      const r = await api.analyzeCase(relato, types);
+      if (r && r.source === "ai" && r.best) setAnalysis({ hasMatch: true, best: r.best, alternatives: r.alternatives || [], confidence: r.confidence || "media", reason: r.reason || "", source: "ai" });
+      else setAnalysis({ ...analyzeSituation(relato), source: "heuristica" });
+    } catch {
+      setAnalysis({ ...analyzeSituation(relato), source: "heuristica" });
+    } finally { setAnalyzing(false); }
+  }
   const [f, setF] = useState({ fechaHecho: "", hora: "", lugar: "", curso: "", testigos: "", adultosRef: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2800,15 +2813,20 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
             <textarea value={relato} onChange={(e) => { setRelato(e.target.value); setAnalysis(null); }} rows={4}
               placeholder="Ej: un estudiante trajo un cuchillo y amenazó a un compañero en el recreo…"
               className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
-            <div className="mt-2"><Btn onClick={() => setAnalysis(analyzeSituation(relato))} accent={C.seal} disabled={!relato.trim()}><Sparkles size={15} /> Analizar situación</Btn></div>
+            <div className="mt-2"><Btn onClick={analizar} accent={C.seal} disabled={!relato.trim() || analyzing}><Sparkles size={15} /> {analyzing ? "Analizando…" : "Analizar situación"}</Btn></div>
             {analysis && (
               <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-md p-3 mt-3 text-sm">
                 {analysis.hasMatch ? (
                   <>
-                    <div style={{ color: C.ink }} className="font-medium flex items-center gap-2"><Sparkles size={14} style={{ color: C.seal }} /> Calce sugerido (confianza {analysis.confidence})</div>
-                    <div style={{ color: C.text }} className="mt-1">{analysis.best.label}</div>
-                    <div style={{ color: C.textSoft }} className="text-xs mt-1">Palabras clave: {analysis.best.matched.join(", ") || "—"}</div>
+                    <div style={{ color: C.ink }} className="font-medium flex items-center gap-2 flex-wrap"><Sparkles size={14} style={{ color: C.seal }} /> Calce sugerido (confianza {analysis.confidence})
+                      <span style={{ background: analysis.source === "ai" ? C.adminSoft : C.paper, color: analysis.source === "ai" ? C.primary : C.textSoft, border: `1px solid ${C.cardBorder}` }} className="text-[10px] px-2 py-0.5 rounded-full">{analysis.source === "ai" ? "IA" : "palabras clave"}</span>
+                    </div>
+                    <div style={{ color: C.text }} className="mt-1 font-medium">{analysis.best.label}</div>
+                    {analysis.source === "ai" && analysis.reason
+                      ? <div style={{ color: C.textSoft }} className="text-xs mt-1">{analysis.reason}</div>
+                      : <div style={{ color: C.textSoft }} className="text-xs mt-1">Palabras clave: {(analysis.best.matched || []).join(", ") || "—"}</div>}
                     {analysis.alternatives.length > 0 && <div style={{ color: C.textSoft }} className="text-xs mt-1">Alternativas: {analysis.alternatives.map((a) => a.label).join(" · ")}</div>}
+                    <div style={{ color: C.textSoft }} className="text-[11px] mt-2">Se aplicará el tipo <b>{analysis.best.label}</b> al generar el paso a paso. Puedes cambiarlo en “Situación predefinida”.</div>
                   </>
                 ) : <div style={{ color: C.textSoft }}>No se detectó un calce claro. Selecciona el tipo manualmente en la pestaña anterior.</div>}
               </div>
