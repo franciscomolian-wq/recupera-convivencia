@@ -35,6 +35,27 @@ export const LEVELS = {
 };
 
 /* ---------------------------------------------------------------
+   CONVIVENCIA POSITIVA — categorías de reconocimiento
+   Refuerzo del buen trato (Ley 21.809), contraparte de las anotaciones.
+   ---------------------------------------------------------------- */
+export const RECON_CATEGORIES = [
+  { key: "solidaridad", label: "Solidaridad", emoji: "🤝", color: "#1E8E3E" },
+  { key: "buenTrato", label: "Buen trato", emoji: "🫶", color: "#D81B60" },
+  { key: "respeto", label: "Respeto", emoji: "✋", color: "#1A73E8" },
+  { key: "esfuerzo", label: "Esfuerzo y superación", emoji: "📈", color: "#E8710A" },
+  { key: "liderazgo", label: "Liderazgo positivo", emoji: "⭐", color: "#F9AB00" },
+  { key: "colaboracion", label: "Colaboración", emoji: "🧩", color: "#12A4A4" },
+  { key: "entorno", label: "Cuidado del entorno", emoji: "♻️", color: "#34A853" },
+  { key: "responsabilidad", label: "Responsabilidad", emoji: "🎯", color: "#9334E6" },
+];
+// Insignias por cantidad acumulada de reconocimientos.
+export const RECON_BADGES = [
+  { min: 10, label: "Oro", emoji: "🥇", color: "#F9AB00" },
+  { min: 6, label: "Plata", emoji: "🥈", color: "#9AA0A6" },
+  { min: 3, label: "Bronce", emoji: "🥉", color: "#B06A3B" },
+];
+
+/* ---------------------------------------------------------------
    INSTITUCIONES DE DERIVACIÓN
    El correo queda vacío: el usuario lo completa al derivar.
    ---------------------------------------------------------------- */

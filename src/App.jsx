@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -17,6 +17,7 @@ import {
   ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
   GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
   DOC_CATEGORIES, INITIAL_DOCUMENTS, PME_DIMENSIONS, INITIAL_ACCIONES,
+  RECON_CATEGORIES, RECON_BADGES,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
@@ -98,6 +99,7 @@ const REC_KIND_TO_ARR = {
   anotacion: "anotaciones", suspension: "suspensiones", atraso: "atrasos", retiro: "retiros",
   pieInforme: "pieInformes", pieAdecuacion: "pieAdecuaciones", pieEstrategia: "pieEstrategias", pieReunion: "pieReuniones",
   citacionApo: "citacionesApo", acuerdoApo: "acuerdosApo", docApo: "docsApo",
+  reconocimiento: "reconocimientos",
 };
 const REC_ARR_TO_KIND = Object.fromEntries(Object.entries(REC_KIND_TO_ARR).map(([k, v]) => [v, k]));
 
@@ -125,7 +127,7 @@ function apiStudentToUI(as) {
     medidas: as.medidas || [],
     anotaciones: [], suspensiones: [], atrasos: [], retiros: [],
     pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [],
-    citacionesApo: [], acuerdosApo: [], docsApo: [],
+    citacionesApo: [], acuerdosApo: [], docsApo: [], reconocimientos: [],
   };
   // Desempaqueta los registros genéricos en sus arreglos: {id, ...data}
   for (const r of as.records || []) {
@@ -1204,6 +1206,7 @@ const PORTAL_NAV = {
   alertas: { label: "Alertas inteligentes", icon: AlertTriangle },
   casos: { label: "Casos de convivencia", icon: FolderOpen },
   expedientes: { label: "Expedientes de estudiantes", icon: ClipboardList },
+  reconocimientos: { label: "Convivencia positiva", icon: Award },
   inspectoria: { label: "Inspectoría General", icon: Gavel },
   pie: { label: "Integración PIE", icon: Puzzle },
   agenda: { label: "Agenda institucional", icon: Calendar },
@@ -1229,7 +1232,7 @@ const PORTAL_NAV = {
 /* Agrupación del menú por secciones, con color por sección (paleta Google) */
 const NAV_GROUPS = [
   { label: "Principal", color: "#1A73E8", keys: ["dashboard", "alertas", "micaso"] },
-  { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "cursos", "inspectoria", "pie", "nuevo"] },
+  { label: "Casos y estudiantes", color: "#1E8E3E", keys: ["casos", "expedientes", "reconocimientos", "cursos", "inspectoria", "pie", "nuevo"] },
   { label: "Comunicación y agenda", color: "#E8710A", keys: ["agenda", "comunicacion", "apoderados"] },
   { label: "Documentos y redes", color: "#D93025", keys: ["documental", "gestion", "redes", "formatos"] },
   { label: "Análisis y planificación", color: "#1A73E8", keys: ["reportes", "planpme"] },
@@ -1244,6 +1247,7 @@ function initials(name) { return (name || "").split(" ").filter(Boolean).map((w)
 const PERM_MODULES = [
   { k: "casos", label: "Casos de convivencia" },
   { k: "expedientes", label: "Expedientes de estudiantes" },
+  { k: "reconocimientos", label: "Convivencia positiva" },
   { k: "inspectoria", label: "Inspectoría General" },
   { k: "pie", label: "Integración PIE" },
   { k: "apoderados", label: "Comunicación con apoderados" },
@@ -1261,8 +1265,8 @@ const PERM_MODULES = [
 ];
 const PERM_KEYS = new Set(PERM_MODULES.map((m) => m.k));
 const PERM_ROLES = ["coordinador", "director", "sostenedor", "superintendencia", "inspectoria", "pie", "orientacion", "utp", "profesorJefe", "docente", "asistente"];
-const AUDIT_KEYS = new Set(["alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "normativa", "redes"]);
-const LIMITED_KEYS = new Set(["casos", "expedientes", "pie", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa"]);
+const AUDIT_KEYS = new Set(["alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "normativa", "redes", "reconocimientos"]);
+const LIMITED_KEYS = new Set(["casos", "expedientes", "pie", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa", "reconocimientos"]);
 
 function defaultLevel(roleKey, mk) {
   const sc = ROLES[roleKey]?.scope;
@@ -1403,6 +1407,7 @@ function PortalApp(props) {
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} onOpenStudent={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
+        {view === "reconocimientos" && <ReconocimientosPage students={students} setStudents={setStudents} role={pageRole} onOpenStudent={openStudent} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
         {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={pageRole} />}
         {view === "agenda" && <AgendaPage events={props.events} setEvents={props.setEvents} cases={cases} role={pageRole} />}
@@ -1929,6 +1934,33 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
             );
           })}
         </div>
+      </ExpBlock>
+
+      <ExpBlock icon={Award} title={`Convivencia positiva (${(s.reconocimientos || []).length})`}>
+        {(() => {
+          const recs = s.reconocimientos || [];
+          const badge = RECON_BADGES.find((b) => recs.length >= b.min);
+          return (
+            <>
+              {badge && <div className="mb-2"><span style={{ background: badge.color + "22", color: badge.color }} className="text-xs font-medium px-2.5 py-1 rounded-full">{badge.emoji} Insignia {badge.label} · {recs.length} reconocimiento(s)</span></div>}
+              {recs.length === 0 ? <div style={{ color: C.textSoft }} className="text-sm">Aún sin reconocimientos. Regístralos en “Convivencia positiva”.</div>
+                : <div className="flex flex-col gap-2">
+                    {recs.slice().reverse().map((r, i) => {
+                      const c = RECON_CATEGORIES.find((x) => x.key === r.categoria) || {};
+                      return (
+                        <div key={r.id || i} style={{ background: C.paper, border: `1px solid ${C.cardBorder}` }} className="rounded-md p-2.5 text-sm">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span style={{ background: (c.color || C.ok) + "18", color: c.color || C.ok }} className="text-[11px] px-2 py-0.5 rounded-full">{c.emoji || "🌟"} {r.categoriaLabel || c.label || "Reconocimiento"}</span>
+                            <span style={{ color: C.textSoft }} className="text-xs ml-auto">{r.fecha}</span>
+                          </div>
+                          {r.descripcion && <div style={{ color: C.text }} className="mt-1">{r.descripcion}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>}
+            </>
+          );
+        })()}
       </ExpBlock>
 
       <ExpBlock icon={UserCircle} title={`Entrevistas (${(s.entrevistas || []).length})`}>
@@ -2587,6 +2619,194 @@ function ApoderadosPage({ students, setStudents, role }) {
             )}
           </ExpBlock>
         </>
+      )}
+    </div>
+  );
+}
+
+/* =================== CONVIVENCIA POSITIVA (RECONOCIMIENTOS) =============== */
+function ReconocimientosPage({ students, setStudents, role, onOpenStudent }) {
+  const readOnly = role.scope === "audit";
+  const [sid, setSid] = useState("");
+  const [q, setQ] = useState("");
+  const [nivel, setNivel] = useState("");
+  const [grado, setGrado] = useState("");
+  const [letra, setLetra] = useState("");
+  const [cat, setCat] = useState(RECON_CATEGORIES[0].key);
+  const [desc, setDesc] = useState("");
+  const [avisar, setAvisar] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const s = students.find((x) => x.id === sid);
+  const catOf = (k) => RECON_CATEGORIES.find((c) => c.key === k) || {};
+  const badgeFor = (n) => RECON_BADGES.find((b) => n >= b.min);
+
+  // Todos los reconocimientos (aplanados) para estadísticas.
+  const all = [];
+  students.forEach((st) => (st.reconocimientos || []).forEach((r) => all.push({ ...r, studentId: st.id, studentName: st.name, curso: st.curso })));
+  const total = all.length;
+  const month = new Date().toISOString().slice(0, 7);
+  const thisMonth = all.filter((r) => String(r.fecha || "").startsWith(month));
+  const byCat = RECON_CATEGORIES.map((c) => ({ ...c, n: all.filter((r) => r.categoria === c.key).length })).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
+  const cntStudentMonth = {};
+  thisMonth.forEach((r) => { cntStudentMonth[r.studentId] = (cntStudentMonth[r.studentId] || 0) + 1; });
+  const topMonth = Object.entries(cntStudentMonth).map(([id, n]) => ({ id, n, name: students.find((x) => x.id === id)?.name, curso: students.find((x) => x.id === id)?.curso })).sort((a, b) => b.n - a.n).slice(0, 5);
+  const recent = all.slice().reverse().slice(0, 10);
+  const cntByStudent = (id) => students.find((x) => x.id === id)?.reconocimientos?.length || 0;
+
+  // Buscador de estudiante (mismo patrón que otros apartados).
+  const enriched = students.map((x) => ({ x, ...courseParts(x) }));
+  const uniqA = (a) => [...new Set(a.filter(Boolean))];
+  const niveles = uniqA(enriched.map((e) => e.nivel));
+  const grados = uniqA(enriched.filter((e) => e.nivel === nivel).map((e) => e.grado)).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  const letras = uniqA(enriched.filter((e) => e.nivel === nivel && e.grado === grado).map((e) => e.letra)).sort();
+  const query = q.trim().toLowerCase();
+  const matches = enriched.filter((e) => (!nivel || e.nivel === nivel) && (!grado || e.grado === grado) && (!letra || e.letra === letra) && (!query || `${e.x.name} ${e.x.rut || ""} ${e.x.curso || ""}`.toLowerCase().includes(query))).slice(0, 40);
+  const Sel = ({ value, onChange, children, disabled }) => (
+    <select value={value} onChange={onChange} disabled={disabled} className="rounded-md p-2 text-sm" style={{ ...inp, opacity: disabled ? 0.5 : 1 }}>{children}</select>
+  );
+
+  async function guardar() {
+    if (!sid || !desc.trim() || saving) return;
+    setSaving(true); setNotice(null);
+    const c = catOf(cat);
+    const willEmail = avisar && !!s?.apoderadoEmail;
+    const rec = { categoria: cat, categoriaLabel: c.label, categoriaEmoji: c.emoji, descripcion: desc.trim(), fecha: new Date().toISOString().slice(0, 10), otorgadoPor: role.label, avisarFamilia: willEmail };
+    try {
+      const r = await api.addStudentRecord(sid, "reconocimiento", rec);
+      setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, reconocimientos: [...(x.reconocimientos || []), { id: r.id, ...(r.data || rec) }] } : x)));
+      setNotice({ ok: true, text: `🎉 Reconocimiento registrado para ${s.name}.` + (r.emailSent ? " Se felicitó a la familia por correo." : willEmail ? " (No se pudo enviar el correo)." : "") });
+      setDesc("");
+    } catch (e) { setNotice({ ok: false, text: "No se pudo registrar: " + (e?.error || e?.message || "error") }); }
+    setSaving(false);
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <PageHead title="Convivencia positiva" subtitle="Reconoce las acciones positivas de los estudiantes: solidaridad, buen trato, esfuerzo y más. Queda en su expediente y, si quieres, felicitamos a la familia por correo." right={<Toolbar onPrint={printView} />} />
+
+      {/* Estadísticas */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div style={{ background: C.ok + "14", border: `1px solid ${C.ok}44` }} className="rounded-lg p-3">
+          <div style={{ color: C.ok }} className="text-2xl font-semibold flex items-center gap-1.5"><Award size={20} /> {total}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-0.5">Reconocimientos</div>
+        </div>
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3">
+          <div style={{ color: C.ink }} className="text-2xl font-semibold">{thisMonth.length}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-0.5">Este mes</div>
+        </div>
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3 col-span-2">
+          <div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-wide mb-1">Por categoría</div>
+          <div className="flex flex-wrap gap-1.5">
+            {byCat.length === 0 ? <span style={{ color: C.textSoft }} className="text-xs">Aún sin reconocimientos.</span>
+              : byCat.map((c) => <span key={c.key} style={{ background: c.color + "18", color: c.color }} className="text-[11px] px-2 py-0.5 rounded-full">{c.emoji} {c.label} · {c.n}</span>)}
+          </div>
+        </div>
+      </div>
+
+      {/* Reconocidos del mes */}
+      {topMonth.length > 0 && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2 flex items-center gap-1.5"><Star size={15} style={{ color: "#F9AB00" }} /> Reconocidos del mes</div>
+          <div className="flex flex-col gap-1.5">
+            {topMonth.map((t, i) => (
+              <button key={t.id} onClick={() => onOpenStudent && onOpenStudent(t.id)} className="text-left flex items-center gap-2 text-sm">
+                <span style={{ color: C.textSoft }} className="w-5">{["🥇", "🥈", "🥉"][i] || "•"}</span>
+                <span style={{ color: C.primary }} className="flex-1">{t.name}<span style={{ color: C.textSoft }} className="text-xs"> · {t.curso || ""}</span></span>
+                <span style={{ color: C.ok }} className="text-xs font-medium">{t.n} este mes</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div style={{ background: notice.ok ? C.ok + "18" : "#FCE8E6", color: notice.ok ? C.ok : C.urgent, border: `1px solid ${notice.ok ? C.ok : C.urgent}` }} className="rounded-lg px-3 py-2 mb-4 text-sm flex items-start justify-between gap-2">
+          <span>{notice.text}</span><button onClick={() => setNotice(null)}><X size={15} /></button>
+        </div>
+      )}
+
+      {/* Registrar reconocimiento */}
+      {!readOnly && (
+        <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-4 mb-4">
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-3 flex items-center gap-1.5"><Heart size={15} style={{ color: "#D81B60" }} /> Registrar un reconocimiento</div>
+          {!s ? (
+            <>
+              <div className="relative mb-2">
+                <Search size={15} color={C.textSoft} className="absolute left-3 top-1/2 -translate-y-1/2" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar estudiante por nombre, RUT o curso…" className="w-full rounded-md p-2.5 pl-9 text-sm" style={inp} />
+              </div>
+              <div className="flex gap-2 flex-wrap items-center mb-2">
+                <Sel value={nivel} onChange={(e) => { setNivel(e.target.value); setGrado(""); setLetra(""); }}><option value="">Todos los niveles</option>{niveles.map((n) => <option key={n} value={n}>{LEVELS[n] || n}</option>)}</Sel>
+                <Sel value={grado} onChange={(e) => { setGrado(e.target.value); setLetra(""); }} disabled={!nivel}><option value="">Grados</option>{grados.map((g) => <option key={g} value={g}>{g}</option>)}</Sel>
+                <Sel value={letra} onChange={(e) => setLetra(e.target.value)} disabled={!grado}><option value="">Letras</option>{letras.map((l) => <option key={l} value={l}>{l || "(sin)"}</option>)}</Sel>
+                <span style={{ color: C.textSoft }} className="text-xs ml-auto">{matches.length} de {students.length}</span>
+              </div>
+              <div className="flex flex-col gap-1.5 max-h-56 overflow-auto">
+                {students.length === 0 ? <div style={{ color: C.textSoft }} className="text-sm">Importa estudiantes en “Cursos”.</div>
+                  : matches.map(({ x }) => (
+                    <button key={x.id} onClick={() => setSid(x.id)} className="text-left">
+                      <div style={{ background: C.paper, border: `1px solid ${C.cardBorder}` }} className="rounded-md p-2.5 flex items-center gap-2 hover:shadow-sm transition text-sm">
+                        <UserCircle size={16} color={C.primary} />
+                        <span style={{ color: C.ink }} className="flex-1">{x.name}<span style={{ color: C.textSoft }} className="text-xs"> · {x.curso || "sin curso"}</span></span>
+                        {cntByStudent(x.id) > 0 && <span style={{ color: C.ok }} className="text-[11px]">{cntByStudent(x.id)} 🏅</span>}
+                      </div>
+                    </button>
+                  ))}
+                {matches.length === 0 && students.length > 0 && <div style={{ color: C.textSoft }} className="text-sm">Sin coincidencias.</div>}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ background: C.paper, border: `1px solid ${C.cardBorder}` }} className="rounded-md p-2.5 mb-3 flex items-center gap-2">
+                <UserCircle size={18} color={C.primary} />
+                <span style={{ color: C.ink }} className="text-sm flex-1">{s.name}<span style={{ color: C.textSoft }} className="text-xs"> · {s.curso || ""} · {cntByStudent(sid)} reconocimiento(s)</span></span>
+                <button onClick={() => setSid("")} style={{ color: C.primary }} className="text-xs flex items-center gap-1">← Cambiar</button>
+              </div>
+              <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Categoría</label>
+              <div className="flex flex-wrap gap-2 mt-1.5 mb-3">
+                {RECON_CATEGORIES.map((c) => (
+                  <button key={c.key} onClick={() => setCat(c.key)} className="text-sm px-3 py-1.5 rounded-full transition"
+                    style={{ background: cat === c.key ? c.color : "#fff", color: cat === c.key ? "#fff" : C.text, border: `1px solid ${cat === c.key ? c.color : C.cardBorder}` }}>{c.emoji} {c.label}</button>
+                ))}
+              </div>
+              <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">¿Qué hizo? (descripción breve)</label>
+              <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} placeholder="Ej: Ayudó espontáneamente a un compañero que se sentía mal y avisó a un adulto." className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+              <div className="flex items-center justify-between gap-3 flex-wrap mt-3">
+                <label className="flex items-center gap-2 text-sm" style={{ color: s?.apoderadoEmail ? C.text : C.textSoft }}>
+                  <input type="checkbox" checked={avisar && !!s?.apoderadoEmail} disabled={!s?.apoderadoEmail} onChange={(e) => setAvisar(e.target.checked)} />
+                  <Mail size={14} /> Felicitar a la familia por correo {s?.apoderadoEmail ? `(${s.apoderadoEmail})` : "(sin correo de apoderado)"}
+                </label>
+                <Btn onClick={guardar} disabled={!desc.trim() || saving}><Award size={15} /> {saving ? "Guardando…" : "Reconocer"}</Btn>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Reconocimientos recientes */}
+      {recent.length > 0 && (
+        <div>
+          <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Reconocimientos recientes</div>
+          <div className="flex flex-col gap-2">
+            {recent.map((r, i) => {
+              const c = catOf(r.categoria);
+              return (
+                <div key={r.id || i} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span style={{ background: (c.color || C.primary) + "18", color: c.color || C.primary }} className="text-[11px] px-2 py-0.5 rounded-full">{c.emoji || "🌟"} {r.categoriaLabel || c.label || "Reconocimiento"}</span>
+                    <button onClick={() => onOpenStudent && onOpenStudent(r.studentId)} style={{ color: C.primary }} className="text-sm font-medium">{r.studentName}</button>
+                    <span style={{ color: C.textSoft }} className="text-xs">· {r.curso || ""}</span>
+                    <span style={{ color: C.textSoft }} className="text-xs ml-auto">{r.fecha}</span>
+                  </div>
+                  {r.descripcion && <div style={{ color: C.text }} className="text-sm mt-1.5">{r.descripcion}</div>}
+                  {r.otorgadoPor && <div style={{ color: C.textSoft }} className="text-[11px] mt-1">Registrado por {r.otorgadoPor}{r.emailSent ? " · familia notificada ✉️" : ""}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
