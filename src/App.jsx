@@ -46,6 +46,30 @@ function BrandLogo({ height = 36 }) {
   return <img src="/recupera-logo.png" alt="Recupera Convivencia" style={{ height, width: "auto", display: "block" }} />;
 }
 
+/* Avisos globales (toasts): informan al usuario cuando una acción falla o se guarda. */
+const toastBus = { fns: new Set(), seq: 0, show(text, type = "error") { const t = { id: ++this.seq, text, type }; this.fns.forEach((f) => f(t)); } };
+function toast(text, type) { toastBus.show(text, type); }
+function Toaster() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    const fn = (t) => { setItems((p) => [...p, t]); setTimeout(() => setItems((p) => p.filter((x) => x.id !== t.id)), 5200); };
+    toastBus.fns.add(fn);
+    return () => toastBus.fns.delete(fn);
+  }, []);
+  if (!items.length) return null;
+  return (
+    <div style={{ position: "fixed", right: 16, bottom: 16, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, maxWidth: "min(92vw, 380px)" }} className="print:hidden">
+      {items.map((t) => (
+        <div key={t.id} onClick={() => setItems((p) => p.filter((x) => x.id !== t.id))}
+          style={{ background: t.type === "ok" ? C.ok : C.urgent, color: "#fff", borderRadius: 10, padding: "11px 14px", boxShadow: "0 6px 24px rgba(0,0,0,.22)", fontSize: 13.5, cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 8 }}>
+          {t.type === "ok" ? <CheckCircle2 size={16} className="mt-0.5 shrink-0" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
+          <span>{t.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ------------------- ADAPTADORES API ↔ UI -------------------------
    La UI trabaja con un objeto de caso "rico" (con type/steps/fechas).
    Estos adaptadores traducen desde/hacia la forma que guarda la API.
@@ -58,6 +82,14 @@ function apiCaseToUI(ac) {
     done: !!s.done,
     evidence: (ac.evidence || []).filter((e) => e.stepOrder === s.order),
   }));
+  // Bitácora persistida: se reconstruye desde los datos guardados (pasos, evidencia, derivaciones, correos, cierre).
+  const log = [];
+  (ac.steps || []).forEach((s) => { if (s.done && s.doneAt) log.push({ at: new Date(s.doneAt), text: `Paso completado: ${s.title}` }); });
+  (ac.evidence || []).forEach((e) => log.push({ at: new Date(e.createdAt), text: `Evidencia (${e.type}): ${e.name}` }));
+  (ac.derivations || []).forEach((d) => log.push({ at: new Date(d.createdAt), text: `Derivación a ${d.label} (${d.email})` }));
+  (ac.emails || []).forEach((m) => log.push({ at: new Date(m.at), text: `Correo enviado${m.to ? " a " + m.to : ""}: ${m.subject || ""}` }));
+  if (ac.closed && ac.closedAt) log.push({ at: new Date(ac.closedAt), text: `Caso cerrado. ${ac.closeSummary || ""}` });
+  log.sort((a, b) => a.at - b.at);
   return {
     _dbId: ac.id,
     id: ac.code,
@@ -76,7 +108,7 @@ function apiCaseToUI(ac) {
     studentId: ac.studentId || null,
     participants: (ac.participants || []).map((p) => ({ studentId: p.studentId, role: p.role, name: p.student?.name || "", curso: p.student?.curso || "" })),
     establishmentId: ac.establishmentId || null,
-    log: [],
+    log,
   };
 }
 
@@ -91,7 +123,9 @@ function apiEstablishmentToUI(e, cases) {
   const mine = cases.filter((c) => c.establishmentId === e.id);
   const activos = mine.filter((c) => !c.closed).length;
   const vencidos = mine.filter((c) => !c.closed && daysLeft((c.steps[c.currentStepIdx] || c.steps[c.steps.length - 1] || {}).due) < 0).length;
-  return { ...e, activos, vencidos, cumplimiento: e.cumplimiento ?? 100 };
+  // Cumplimiento CALCULADO: % de casos del establecimiento que NO están en incumplimiento de plazo.
+  const cumplimiento = mine.length ? Math.round((100 * (mine.length - vencidos)) / mine.length) : 100;
+  return { ...e, activos, vencidos, cumplimiento };
 }
 
 /* kind (BD) → nombre del arreglo en la UI (inspectoría, PIE, apoderados). */
@@ -143,15 +177,25 @@ async function addStudentRec(setStudents, sid, arrName, data) {
     const r = await api.addStudentRecord(sid, REC_ARR_TO_KIND[arrName], data);
     const item = { id: r.id, ...(r.data || {}) };
     setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: [...(x[arrName] || []), item] } : x)));
-  } catch (e) { console.error("addStudentRec", arrName, e); }
+  } catch (e) { console.error("addStudentRec", arrName, e); toast("No se pudo guardar el registro. Inténtalo de nuevo."); }
 }
 function updStudentRec(setStudents, sid, arrName, id, patch) {
-  setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).map((it) => (it.id === id ? { ...it, ...patch } : it)) } : x)));
-  api.updateStudentRecord(id, patch).catch((e) => console.error("updStudentRec", e));
+  let prev = null; // guardamos el valor anterior para revertir si la API falla
+  setStudents((cur) => cur.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).map((it) => { if (it.id === id) { prev = it; return { ...it, ...patch }; } return it; }) } : x)));
+  api.updateStudentRecord(id, patch).catch((e) => {
+    console.error("updStudentRec", e);
+    toast("No se pudo guardar el cambio. Se revirtió.");
+    if (prev) setStudents((cur) => cur.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).map((it) => (it.id === id ? prev : it)) } : x)));
+  });
 }
 function delStudentRec(setStudents, sid, arrName, id) {
-  setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, [arrName]: (x[arrName] || []).filter((it) => it.id !== id) } : x)));
-  api.deleteStudentRecord(id).catch((e) => console.error("delStudentRec", e));
+  let removed = null, idx = -1; // para restaurar el registro eliminado si la API falla
+  setStudents((cur) => cur.map((x) => { if (x.id !== sid) return x; const arr = x[arrName] || []; idx = arr.findIndex((it) => it.id === id); removed = arr[idx]; return { ...x, [arrName]: arr.filter((it) => it.id !== id) }; }));
+  api.deleteStudentRecord(id).catch((e) => {
+    console.error("delStudentRec", e);
+    toast("No se pudo eliminar el registro. Se restauró.");
+    if (removed) setStudents((cur) => cur.map((x) => { if (x.id !== sid) return x; const arr = [...(x[arrName] || [])]; arr.splice(idx < 0 ? arr.length : idx, 0, removed); return { ...x, [arrName]: arr }; }));
+  });
 }
 
 /* Helpers para registros a nivel establecimiento (agenda/mensajes/gestiones/documental/PME). */
@@ -160,15 +204,25 @@ function orgAdd(setter, kind, data, { prepend = true, global = false } = {}) {
     const item = { id: r.id, ...(r.data || {}) };
     setter((prev) => (prepend ? [item, ...prev] : [...prev, item]));
     return item;
-  }).catch((e) => console.error("orgAdd", kind, e));
+  }).catch((e) => { console.error("orgAdd", kind, e); toast("No se pudo guardar. Inténtalo de nuevo."); });
 }
 function orgUpdate(setter, id, patch) {
-  setter((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
-  api.updateOrgRecord(id, patch).catch((e) => console.error("orgUpdate", e));
+  let prev = null;
+  setter((cur) => cur.map((it) => { if (it.id === id) { prev = it; return { ...it, ...patch }; } return it; }));
+  api.updateOrgRecord(id, patch).catch((e) => {
+    console.error("orgUpdate", e);
+    toast("No se pudo guardar el cambio. Se revirtió.");
+    if (prev) setter((cur) => cur.map((it) => (it.id === id ? prev : it)));
+  });
 }
 function orgDelete(setter, id) {
-  setter((prev) => prev.filter((it) => it.id !== id));
-  api.deleteOrgRecord(id).catch((e) => console.error("orgDelete", e));
+  let removed = null, idx = -1;
+  setter((cur) => { idx = cur.findIndex((it) => it.id === id); removed = cur[idx]; return cur.filter((it) => it.id !== id); });
+  api.deleteOrgRecord(id).catch((e) => {
+    console.error("orgDelete", e);
+    toast("No se pudo eliminar. Se restauró.");
+    if (removed) setter((cur) => { const arr = [...cur]; arr.splice(idx < 0 ? arr.length : idx, 0, removed); return arr; });
+  });
 }
 
 /* Importación persistente a la BD (reemplaza la carga solo-en-memoria). */
@@ -404,8 +458,35 @@ function isMarketingHost() {
   const h = window.location.hostname.toLowerCase();
   return h === "recuperaconvivencia.cl" || h === "www.recuperaconvivencia.cl";
 }
+// Captura errores de render para que un fallo puntual no deje la pantalla en blanco.
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("ErrorBoundary", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "#f8fafc" }}>
+          <div style={{ maxWidth: 460, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 28, textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,.08)" }}>
+            <AlertTriangle size={40} style={{ color: C.urgent, margin: "0 auto 12px" }} />
+            <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Se produjo un error inesperado</h1>
+            <p style={{ fontSize: 14, color: "#475569", marginBottom: 18 }}>La aplicación encontró un problema al mostrar esta vista. Tus datos están a salvo. Vuelve a cargar la página para continuar.</p>
+            <button onClick={() => window.location.reload()} style={{ background: C.primary, color: "#fff", border: 0, borderRadius: 9, padding: "10px 18px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Recargar</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function Root() {
-  return isMarketingHost() ? <LandingPage /> : <App />;
+  return (
+    <ErrorBoundary>
+      {isMarketingHost() ? <LandingPage /> : <App />}
+      <Toaster />
+    </ErrorBoundary>
+  );
 }
 
 function App() {
@@ -1894,13 +1975,16 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       else if (kind === "medidas") created = await api.addMedida(s.id, record);
       else created = { id: `${kind}${Date.now()}`, ...record };
       update((x) => ({ ...x, [kind]: [...(x[kind] || []), created] }));
-    } catch (e) { console.error("add", kind, e); }
+    } catch (e) { console.error("add", kind, e); toast("No se pudo guardar el registro. Inténtalo de nuevo."); }
   }
   function toggleCompromiso(cid) {
     const cur = (s.compromisos || []).find((k) => k.id === cid);
     const next = !(cur && cur.cumplido);
     update((x) => ({ ...x, compromisos: x.compromisos.map((k) => (k.id === cid ? { ...k, cumplido: next } : k)) }));
-    api.setCompromiso(cid, next).catch((e) => console.error("setCompromiso", e));
+    api.setCompromiso(cid, next).catch((e) => {
+      console.error("setCompromiso", e); toast("No se pudo actualizar el compromiso. Se revirtió.");
+      update((x) => ({ ...x, compromisos: x.compromisos.map((k) => (k.id === cid ? { ...k, cumplido: !next } : k)) }));
+    });
   }
 
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
@@ -2304,7 +2388,10 @@ function PIEPage({ students, setStudents, cases, role }) {
   function toggleNee() {
     const next = !s.nee;
     setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, nee: next } : x)));
-    api.updateStudent(sid, { nee: next }).catch((e) => console.error("nee", e));
+    api.updateStudent(sid, { nee: next }).catch((e) => {
+      console.error("nee", e); toast("No se pudo actualizar. Se revirtió.");
+      setStudents((prev) => prev.map((x) => (x.id === sid ? { ...x, nee: !next } : x)));
+    });
   }
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
   const scases = cases.filter((c) => caseHasStudent(c, sid));
@@ -3072,6 +3159,7 @@ function CaseWizard({ students, protocols, onCreate, onCancel }) {
             <textarea value={relato} onChange={(e) => { setRelato(e.target.value); setAnalysis(null); }} rows={4}
               placeholder="Ej: un estudiante trajo un cuchillo y amenazó a un compañero en el recreo…"
               className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }} />
+            <div style={{ color: C.textSoft }} className="text-[11px] mt-1.5 flex items-start gap-1"><Lock size={12} className="mt-0.5 shrink-0" /> Para analizar el tipo se usa una IA externa: <b className="font-medium">evita nombres completos, usa iniciales</b>. Se seudonimizan RUT, correos y teléfonos automáticamente.</div>
             <div className="mt-2"><Btn onClick={analizar} accent={C.seal} disabled={!relato.trim() || analyzing}><Sparkles size={15} /> {analyzing ? "Analizando…" : "Analizar situación"}</Btn></div>
             {analysis && (
               <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-md p-3 mt-3 text-sm">
@@ -3341,21 +3429,26 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
   const emails = c.emails || [];
 
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
+  // Restaura el caso a un snapshot previo (para revertir una acción que falló en el servidor).
+  function revertTo(snapshot) { setCases((prev) => prev.map((x) => (x.id === c.id ? snapshot : x))); }
   function closeCase(summary) {
-    update((x) => ({ ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }));
+    let prev = null;
+    update((x) => { prev = x; return { ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }; });
     setCloseOpen(false);
-    if (c._dbId) api.closeCase(c._dbId, summary).catch((e) => console.error("closeCase", e));
+    if (c._dbId) api.closeCase(c._dbId, summary).catch((e) => { console.error("closeCase", e); toast("No se pudo cerrar el caso. Se revirtió."); if (prev) revertTo(prev); });
   }
   function markDone(stepId) {
-    update((x) => ({ ...x, currentStepIdx: Math.max(x.currentStepIdx, stepId + 1),
+    let prev = null;
+    update((x) => { prev = x; return { ...x, currentStepIdx: Math.max(x.currentStepIdx, stepId + 1),
       steps: x.steps.map((s) => (s.id === stepId ? { ...s, done: true } : s)),
-      log: [...x.log, { at: new Date(), who: role.label, text: `Paso completado: ${x.steps[stepId].title}` }] }));
-    if (c._dbId) api.stepDone(c._dbId, stepId).catch((e) => console.error("stepDone", e));
+      log: [...x.log, { at: new Date(), who: role.label, text: `Paso completado: ${x.steps[stepId].title}` }] }; });
+    if (c._dbId) api.stepDone(c._dbId, stepId).catch((e) => { console.error("stepDone", e); toast("No se pudo registrar el paso. Se revirtió."); if (prev) revertTo(prev); });
   }
   function addEvidence(stepId, name, type) {
-    update((x) => ({ ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { name, type }] } : s)),
-      log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }));
-    if (c._dbId) api.addEvidence(c._dbId, { type, name, stepOrder: stepId }).catch((e) => console.error("addEvidence", e));
+    let prev = null;
+    update((x) => { prev = x; return { ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { name, type }] } : s)),
+      log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }; });
+    if (c._dbId) api.addEvidence(c._dbId, { type, name, stepOrder: stepId }).catch((e) => { console.error("addEvidence", e); toast("No se pudo adjuntar la evidencia. Se revirtió."); if (prev) revertTo(prev); });
   }
   // Notificar por correo (envío real + registro persistente).
   async function doNotify(mail) {
