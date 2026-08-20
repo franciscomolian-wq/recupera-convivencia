@@ -1324,6 +1324,7 @@ const CASE_CAT_COLOR = {
   violenciaFuncionario: "#E8710A", maltratoDocenteEstudiante: "#E8710A",
   disciplinario: "#12A4A4", denunciaInterna: "#12A4A4", accidenteEscolar: "#5F6368",
   revisionPertenencias: "#E8710A",
+  desregulacion: "#9334E6",
 };
 const caseColor = (typeKey) => CASE_CAT_COLOR[typeKey] || "#5F6368";
 

@@ -9,6 +9,7 @@
    ---------------------------------------------------------------- */
 export const NORMATIVA_LIBRARY = [
   { name: "Ley 21.809", desc: "Convivencia, buen trato y bienestar de las comunidades educativas. Núcleo normativo vigente desde julio de 2026: plazos, canales de denuncia, coordinador de convivencia y plan de gestión." },
+  { name: "Protocolo de Desregulación Emocional/Conductual (DEC)", desc: "Manejo de crisis de desregulación emocional o conductual con enfoque formativo y de contención (no punitivo): fases de anticipación, escalada, contención, desescalada, recuperación y reparación, con registro y trabajo con la familia. Especialmente relevante para estudiantes con necesidades educativas especiales (PIE). Basado en la propuesta de adaptación del Ministerio de Educación." },
   { name: "Ley 21.827 (Escuelas Protegidas)", desc: "Seguridad, orden y respeto en la comunidad educativa (vigente desde el 12 de agosto de 2026). Permite al sostenedor incorporar en el reglamento interno la revisión de mochilas, bolsos y efectos personales para prevenir elementos peligrosos, con resguardos estrictos: personal autorizado y capacitado, lugares designados, prohibición de revisiones forzosas o de prendas de vestir, revisiones individuales solo con al menos dos adultos (uno del equipo de convivencia) en lugar privado, y registro escrito firmado con copia al estudiante y apoderado. Ante negativa se informa al apoderado y, si persiste, se notifica a la Oficina Local de la Niñez; estudiantes PIE requieren acompañamiento profesional. Establece además la comparecencia obligatoria del apoderado a citaciones formales, medidas disciplinarias aplicadas de forma graduada y proporcional, prohibición de accesorios que impidan la identificación facial y un procedimiento para suspender el acceso de apoderados que agredan a la comunidad." },
   { name: "Ley 20.370 (DFL N°2)", desc: "Ley General de Educación. Marco general de finalidades educativas y deberes de la comunidad escolar." },
   { name: "Ley 20.845", desc: "Ley de Inclusión Escolar. No discriminación arbitraria y debido proceso en medidas disciplinarias." },
@@ -133,6 +134,22 @@ export const CASE_TYPES = {
       { title: "Ante negativa del estudiante: informar de inmediato al apoderado para revisar; si persiste, el apoderado retira las pertenencias y se notifica a la Oficina Local de la Niñez", days: 1, role: "Director/a", basis: "Ley 21.827 — procedimiento ante negativa y aviso a la OLN" },
       { title: "Si se hallan elementos peligrosos: activar el protocolo de seguridad y la denuncia si procede, con medidas graduadas y proporcionales", days: 1, role: "Director/a", basis: "Ley 21.827 + Ley 21.128 (Aula Segura) — secuencia de intervención graduada; denuncia obligatoria si hay delito" },
       { title: "Seguimiento formativo con el estudiante y la familia, y registro en el expediente", days: 5, role: "Equipo de Convivencia", basis: "Ley 21.827 — medidas con pertinencia pedagógica y proporcionalidad" },
+    ],
+  },
+  desregulacion: {
+    label: "Crisis de desregulación emocional/conductual (DEC)",
+    relacion: "Estudiante (con o sin NEE)",
+    levels: ["parvulo", "basica", "media"],
+    keywords: ["desregulación", "desregulacion", "crisis de conducta", "crisis conductual", "descontrol emocional", "desborde emocional", "descompensación", "contención", "pataleta", "autorregulación", "dec"],
+    network: ["psicosocial", "cesfam"],
+    steps: [
+      { title: "Contención inmediata y resguardo de la seguridad del estudiante y sus pares", days: 0, role: "Docente a cargo / Asistentes", basis: "Protocolo de Desregulación (adaptación MINEDUC) — despejar el área, no dejar solo al estudiante; contención física solo como último recurso y documentada" },
+      { title: "Desescalada: reducir estímulos, lenguaje calmado, validar emociones y ofrecer un espacio seguro", days: 0, role: "Dupla psicosocial / PIE", basis: "Protocolo de Desregulación — desescalada sin sermones ni castigos durante la crisis" },
+      { title: "Recuperación: descanso en un espacio tranquilo y monitoreo del estado emocional", days: 0, role: "Psicólogo/a o Trabajador/a Social", basis: "Protocolo de Desregulación — restaurar el bienestar antes de retomar la jornada" },
+      { title: "Notificación a la familia (inmediata o al día siguiente, según severidad)", days: 1, role: "Encargado/a de Convivencia / Profesor jefe", basis: "Protocolo de Desregulación — informar lo ocurrido y las acciones, y solicitar antecedentes" },
+      { title: "Registro obligatorio del episodio (fecha, hora, desencadenantes, intervenciones y personas involucradas)", days: 1, role: "Docente / Equipo de Convivencia", basis: "Protocolo de Desregulación — documentación en el expediente del estudiante y bitácora institucional" },
+      { title: "Reparación: conversación reflexiva, análisis del desencadenante y estrategias alternativas de regulación", days: 3, role: "Dupla psicosocial / Dirección", basis: "Protocolo de Desregulación — reparar vínculos y daños, enfoque formativo (no punitivo)" },
+      { title: "Coordinación con PIE y seguimiento; ajuste de apoyos y plan de acompañamiento si es recurrente", days: 7, role: "Coordinación PIE / Equipo de Convivencia", basis: "Decreto 170 (PIE) y Ley 20.845 — apoyos a NEE, ajustes razonables y seguimiento" },
     ],
   },
   discriminacion: {
