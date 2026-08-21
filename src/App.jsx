@@ -499,6 +499,8 @@ function App() {
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") : null);
   const [citacionTok, setCitacionTok] = useState(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("citacion") : null);
+  const [avisoTok, setAvisoTok] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("aviso") : null);
   const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -567,6 +569,8 @@ function App() {
     return <ResetPassword token={resetTok} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); }} />;
   if (citacionTok)
     return <CitacionConfirm token={citacionTok} onClose={() => { window.history.replaceState({}, "", window.location.pathname); setCitacionTok(null); }} />;
+  if (avisoTok)
+    return <AvisoTratamiento token={avisoTok} onClose={() => { window.history.replaceState({}, "", window.location.pathname); setAvisoTok(null); }} />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
@@ -1005,6 +1009,93 @@ function ResetPassword({ token, onDone, onCancel }) {
 /* ---------------------------------------------------------------
    CONFIRMACIÓN DE CITACIÓN — página pública desde el enlace del correo
    ---------------------------------------------------------------- */
+// Aviso de tratamiento de datos y, cuando corresponde, solicitud de consentimiento a la
+// familia (Ley 21.719). Se abre con ?aviso=<token>, sin login. Cierra el hallazgo ALTA #4.
+function AvisoTratamiento({ token, onClose }) {
+  const [info, setInfo] = useState(null);
+  const [invalid, setInvalid] = useState("");
+  const [estado, setEstado] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.getAviso(token)
+      .then((d) => { setInfo(d); if (d.estado === "otorgado" || d.estado === "rechazado") setEstado(d.estado); })
+      .catch((err) => setInvalid((err && (err.error || err.message)) || "El enlace no es válido."));
+  }, [token]);
+
+  async function responder(valor) {
+    setLoading(true);
+    try { const r = await api.respondAviso(token, valor); setEstado(r.estado); }
+    catch (err) { setInvalid((err && (err.error || err.message)) || "No se pudo registrar tu respuesta."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-lg shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center"><Shield size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Protección de datos</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Recupera Convivencia · Ley 21.719</div>
+          </div>
+        </div>
+
+        {invalid ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2"><AlertTriangle size={16} /> {invalid}</div>
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff" }}>Cerrar</button>
+          </div>
+        ) : !info ? (
+          <div style={{ color: C.textSoft }} className="text-sm">Cargando la información…</div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p style={{ color: C.textSoft }} className="text-sm">
+              Estimado/a {info.apoderado || "apoderado/a"}: el establecimiento registra información
+              de convivencia escolar de {info.studentName || "su pupilo/a"} en esta plataforma.
+            </p>
+
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
+              <div style={{ ...mono, color: C.textSoft }} className="text-[10px] uppercase tracking-widest mb-1">Finalidad</div>
+              <div style={{ color: C.ink }}>{info.finalidad}</div>
+            </div>
+
+            <div style={{ background: info.requiereRespuesta ? "#FEF7E0" : "#E8F0FE", border: `1px solid ${info.requiereRespuesta ? C.warn : C.primary}` }} className="rounded-lg p-3 text-xs leading-relaxed">
+              {info.requiereRespuesta
+                ? "Esta finalidad excede la obligación legal del establecimiento, por lo que se solicita su consentimiento. Puede otorgarlo o rechazarlo, y revocarlo después. Rechazarlo no afecta la atención de su pupilo/a."
+                : "Este tratamiento se funda en el deber legal del establecimiento de resguardar la convivencia escolar, por lo que no requiere su consentimiento. Se le informa para que conozca su alcance."}
+            </div>
+
+            <div>
+              <div style={{ color: C.ink }} className="text-sm font-medium mb-1.5">Sus derechos</div>
+              <ul style={{ color: C.textSoft }} className="text-xs flex flex-col gap-1 list-disc pl-4">
+                {(info.derechos || []).map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+              <p style={{ color: C.textSoft }} className="text-xs mt-2">
+                Para ejercerlos, escriba a <span style={{ color: C.primary }}>{info.contacto}</span> o acérquese al establecimiento.
+              </p>
+            </div>
+
+            {info.requiereRespuesta && !estado && (
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => responder("otorgado")} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium flex-1" style={{ background: C.ok, color: "#fff", opacity: loading ? 0.5 : 1 }}>Otorgo mi consentimiento</button>
+                <button onClick={() => responder("rechazado")} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium flex-1" style={{ background: "#fff", color: C.urgent, border: `1px solid ${C.urgent}`, opacity: loading ? 0.5 : 1 }}>No lo otorgo</button>
+              </div>
+            )}
+            {estado && (
+              <div style={{ background: estado === "otorgado" ? C.ok + "18" : "#FCE8E6", color: estado === "otorgado" ? C.ok : C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2">
+                <CheckCircle2 size={16} /> Respuesta registrada: {estado === "otorgado" ? "consentimiento otorgado" : "consentimiento rechazado"}.
+              </div>
+            )}
+
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: "#fff", color: C.ink, border: `1px solid ${C.cardBorder}` }}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CitacionConfirm({ token, onClose }) {
   const [info, setInfo] = useState(null);
   const [invalid, setInvalid] = useState("");
@@ -1061,6 +1152,9 @@ function CitacionConfirm({ token, onClose }) {
             <button onClick={confirmar} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
               {loading ? "Confirmando…" : "Confirmar asistencia"}
             </button>
+            {info.aviso && (
+              <p style={{ color: C.textSoft }} className="text-[11px] leading-relaxed">{info.aviso}</p>
+            )}
             <p style={{ color: C.textSoft }} className="text-[11px] text-center">Si no puedes asistir, comunícate con el establecimiento para reagendar.</p>
           </div>
         )}
@@ -1482,6 +1576,7 @@ function PortalApp(props) {
         </div>
       <main className="flex-1 p-6 sm:p-10 min-w-0">
         <div className="hidden lg:flex justify-end mb-4"><NotificationBell items={notifItems} onOpen={() => { if (navKeys.includes("comunicacion")) go("comunicacion"); }} /></div>
+        <RiesgoVitalBanner roleKey={session.role} onOpenCase={openCase} />
         {view === "dashboard" && <Dashboard role={pageRole} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
         {view === "nuevo" && <CaseWizard students={students} protocols={props.protocols} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
         {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={pageRole} />}
@@ -1957,13 +2052,21 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
   );
 }
 
+// Estados del seguimiento de medidas (auditoría ALTA #6 · Ley 21.809).
+const MEDIDA_ESTADOS = {
+  pendiente: { label: "Pendiente", color: "#5F6368", bg: "#5F636822" },
+  en_curso: { label: "En curso", color: "#B26A00", bg: "#B26A0022" },
+  cumplida: { label: "Cumplida", color: "#1E8E3E", bg: "#1E8E3E22" },
+  incumplida: { label: "Incumplida", color: "#D93025", bg: "#D9302522" },
+};
+
 function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
   const readOnly = role.scope === "audit" || role.scope === "family";
   const scases = cases.filter((c) => caseHasStudent(c, s.id));
   const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "", foto: null });
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
   const [com, setCom] = useState("");
-  const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "" });
+  const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "", responsable: "", plazo: "" });
 
   function update(fn) { setStudents((prev) => prev.map((x) => (x.id === s.id ? fn(x) : x))); }
   async function add(kind, record) {
@@ -1976,6 +2079,38 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       else created = { id: `${kind}${Date.now()}`, ...record };
       update((x) => ({ ...x, [kind]: [...(x[kind] || []), created] }));
     } catch (e) { console.error("add", kind, e); toast("No se pudo guardar el registro. Inténtalo de nuevo."); }
+  }
+  // Seguimiento de la medida (auditoría ALTA #6). Optimista, con reversión si el servidor falla.
+  async function updMedida(mid, patch) {
+    let prev = null;
+    update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => { if (m.id !== mid) return m; prev = m; return { ...m, ...patch }; }) }));
+    try {
+      const saved = await api.updateMedida(mid, patch);
+      update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? saved : m)) }));
+    } catch (e) {
+      if (prev) update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? prev : m)) }));
+      toast(e?.error || "No se pudo actualizar la medida. Se revirtió.");
+    }
+  }
+  function registrarEvidencia(m) {
+    const val = window.prompt("Evidencia del cumplimiento (acta, informe, enlace, descripción):", m.evidencia || "");
+    if (val === null) return;
+    updMedida(m.id, { evidencia: val.trim() });
+  }
+  function asignarResponsable(m) {
+    const val = window.prompt("¿Quién es responsable de ejecutar esta medida?", m.responsable || "");
+    if (val === null || !val.trim()) return;
+    updMedida(m.id, { responsable: val.trim() });
+  }
+  // Marcar "cumplida" sin evidencia no está permitido en el servidor: se pide aquí primero.
+  function cambiarEstadoMedida(m, estado) {
+    if (estado === "cumplida" && !String(m.evidencia || "").trim()) {
+      const val = window.prompt("Para marcar la medida como cumplida, registra la evidencia:", "");
+      if (val === null || !val.trim()) { toast("Sin evidencia no se puede marcar como cumplida.", "info"); return; }
+      updMedida(m.id, { estado, evidencia: val.trim() });
+      return;
+    }
+    updMedida(m.id, { estado });
   }
   function toggleCompromiso(cid) {
     const cur = (s.compromisos || []).find((k) => k.id === cid);
@@ -2121,10 +2256,41 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           {(s.medidas || []).map((m) => {
             const mt = MEASURE_TYPES.find((t) => t.value === m.tipo);
             const col = m.tipo === "disciplinaria" ? C.urgent : m.tipo === "pedagogica" ? C.warn : C.primary;
+            const est = MEDIDA_ESTADOS[m.estado || "pendiente"] || MEDIDA_ESTADOS.pendiente;
+            const vencida = m.plazo && !["cumplida", "incumplida"].includes(m.estado) && new Date(m.plazo) < new Date(new Date().toDateString());
             return (
-              <div key={m.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2 flex-wrap">
-                <div><span style={{ color: C.ink }}>{m.descripcion}</span> <span style={{ color: C.textSoft }}>· {m.fecha || "sin fecha"}</span></div>
-                {chip(col + "22", col, mt ? mt.label : m.tipo)}
+              <div key={m.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div><span style={{ color: C.ink }}>{m.descripcion}</span> <span style={{ color: C.textSoft }}>· {m.fecha || "sin fecha"}</span></div>
+                  <div className="flex items-center gap-1.5">
+                    {chip(est.bg, est.color, est.label)}
+                    {chip(col + "22", col, mt ? mt.label : m.tipo)}
+                  </div>
+                </div>
+                <div style={{ color: C.textSoft }} className="flex items-center gap-2 flex-wrap text-[11px]">
+                  <span>Responsable: <b style={{ color: C.ink }}>{m.responsable || "sin asignar"}</b></span>
+                  <span>·</span>
+                  <span style={{ color: vencida ? C.urgent : C.textSoft }}>
+                    Plazo: <b style={{ color: vencida ? C.urgent : C.ink }}>{m.plazo || "sin plazo"}</b>{vencida ? " (vencido)" : ""}
+                  </span>
+                  {m.verificadaAt && (<><span>·</span><span>Verificada por <b style={{ color: C.ink }}>{m.verificadaPor}</b></span></>)}
+                </div>
+                {m.evidencia && (
+                  <div style={{ color: C.textSoft }} className="text-[11px]">Evidencia: <span style={{ color: C.ink }}>{m.evidencia}</span></div>
+                )}
+                {!readOnly && (
+                  <div className="flex items-center gap-1.5 flex-wrap print:hidden mt-0.5">
+                    <select value={m.estado || "pendiente"} onChange={(e) => cambiarEstadoMedida(m, e.target.value)} className="rounded-md p-1 text-[11px]" style={inp}>
+                      {Object.entries(MEDIDA_ESTADOS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <button onClick={() => registrarEvidencia(m)} className="text-[11px] px-2 py-1 rounded-md" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                      {m.evidencia ? "Editar evidencia" : "Registrar evidencia"}
+                    </button>
+                    {!m.responsable && (
+                      <button onClick={() => asignarResponsable(m)} className="text-[11px] px-2 py-1 rounded-md" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>Asignar responsable</button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2135,10 +2301,15 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
               {MEASURE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
             <input value={med.descripcion} onChange={(e) => setMed({ ...med, descripcion: e.target.value })} placeholder="Descripción" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
-            <input type="date" value={med.fecha} onChange={(e) => setMed({ ...med, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
-            <Btn onClick={() => { if (med.descripcion.trim()) { add("medidas", med); setMed({ tipo: "formativa", descripcion: "", fecha: "" }); } }}><Plus size={14} /> Agregar</Btn>
+            <input value={med.responsable} onChange={(e) => setMed({ ...med, responsable: e.target.value })} placeholder="Responsable" className="rounded-md p-2 text-sm min-w-[130px]" style={inp} />
+            <label className="flex items-center gap-1 text-xs" style={{ color: C.textSoft }}>Aplicada<input type="date" value={med.fecha} onChange={(e) => setMed({ ...med, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /></label>
+            <label className="flex items-center gap-1 text-xs" style={{ color: C.textSoft }}>Plazo<input type="date" value={med.plazo} onChange={(e) => setMed({ ...med, plazo: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /></label>
+            <Btn onClick={() => { if (med.descripcion.trim()) { add("medidas", med); setMed({ tipo: "formativa", descripcion: "", fecha: "", responsable: "", plazo: "" }); } }}><Plus size={14} /> Agregar</Btn>
           </div>
         )}
+        <p style={{ color: C.textSoft }} className="text-[11px] mt-2 print:hidden">
+          La Ley 21.809 exige poder demostrar el cumplimiento de las medidas: para marcar una como cumplida hay que registrar la evidencia.
+        </p>
       </ExpBlock>
     </div>
   );
@@ -3431,11 +3602,28 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
   // Restaura el caso a un snapshot previo (para revertir una acción que falló en el servidor).
   function revertTo(snapshot) { setCases((prev) => prev.map((x) => (x.id === c.id ? snapshot : x))); }
-  function closeCase(summary) {
+  // Cerrar el caso. Si el servidor responde 409 hay medidas sin resolver: se pregunta
+  // antes de forzar, y el cierre forzado queda registrado en auditoría (Ley 21.809).
+  async function closeCase(summary, forzar = false) {
     let prev = null;
     update((x) => { prev = x; return { ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }; });
     setCloseOpen(false);
-    if (c._dbId) api.closeCase(c._dbId, summary).catch((e) => { console.error("closeCase", e); toast("No se pudo cerrar el caso. Se revirtió."); if (prev) revertTo(prev); });
+    if (!c._dbId) return;
+    try {
+      await api.closeCase(c._dbId, summary, forzar);
+    } catch (e) {
+      if (prev) revertTo(prev);
+      if (e?.status === 409 && e?.requiereJustificacion) {
+        const seguir = window.confirm(
+          `${e.error}\n\n¿Cerrar igualmente?\n\nEl cierre quedará registrado en auditoría como cierre forzado con ${e.medidasPendientes} medida(s) sin verificar.`
+        );
+        if (seguir) return closeCase(summary, true);
+        toast("El caso no se cerró. Verifica el cumplimiento de las medidas.", "info");
+        return;
+      }
+      console.error("closeCase", e);
+      toast("No se pudo cerrar el caso. Se revirtió.");
+    }
   }
   function markDone(stepId) {
     let prev = null;
@@ -3633,6 +3821,55 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
       {emailOpen && <EmailModal c={c} templates={templates} onClose={() => setEmailOpen(false)} onSend={doNotify} />}
       {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)} onDerive={doDerive} />}
       {closeOpen && <CloseCaseModal onClose={() => setCloseOpen(false)} onConfirm={closeCase} />}
+    </div>
+  );
+}
+
+// Alerta inmediata de riesgo vital (auditoría ALTA #11). Se muestra sobre cualquier vista
+// mientras haya un caso activo sin acuse de Orientación / dupla psicosocial / Dirección.
+const ROLES_ACUSE_RIESGO = ["superadmin", "director", "coordinador", "orientacion", "pie"];
+
+function RiesgoVitalBanner({ roleKey, onOpenCase }) {
+  const [items, setItems] = useState([]);
+  const puedeAcusar = ROLES_ACUSE_RIESGO.includes(roleKey);
+
+  const cargar = React.useCallback(() => {
+    api.riesgoVitalAlertas().then(setItems).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    cargar();
+    // Refresco periódico: una alerta de riesgo vital no puede esperar a que se recargue la página.
+    const id = setInterval(cargar, 60_000);
+    return () => clearInterval(id);
+  }, [cargar]);
+
+  async function acusar(dbId) {
+    setItems((prev) => prev.filter((x) => x.id !== dbId));
+    try { await api.acusarRiesgoVital(dbId); }
+    catch (e) { console.error("ackRiesgoVital", e); toast("No se pudo registrar el acuse. Se restauró la alerta."); cargar(); }
+  }
+
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-col gap-2 mb-5 print:hidden">
+      {items.map((a) => (
+        <div key={a.id} style={{ background: "#FCE8E6", border: `1px solid ${C.urgent}` }} className="rounded-xl p-3.5 flex items-start gap-3 flex-wrap">
+          <AlertTriangle size={20} style={{ color: C.urgent }} className="shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-[220px]">
+            <div style={{ color: C.urgent }} className="text-sm font-semibold">Caso de riesgo vital activo · {a.code}</div>
+            <div style={{ color: C.text }} className="text-xs mt-0.5">
+              {a.studentLabel}{a.curso ? " · " + a.curso : ""} — paso de día 0: <b>no dejar solo/a al estudiante</b> y activar el protocolo de salud mental.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onOpenCase(a.code)} className="mbtn text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: C.urgent, color: "#fff" }}>Abrir el caso</button>
+            {puedeAcusar && (
+              <button onClick={() => acusar(a.id)} className="mbtn text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "#fff", color: C.urgent, border: `1px solid ${C.urgent}` }}>Acusar recibo</button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

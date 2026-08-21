@@ -58,7 +58,22 @@ export const api = {
   // --- Casos ---
   listCases: () => request("/api/cases", { auth: true }),
   createCase: (payload) => request("/api/cases", { method: "POST", body: payload, auth: true }),
-  closeCase: (id, summary) => request(`/api/cases/${id}/close`, { method: "POST", body: { summary }, auth: true }),
+  // forzar=true cierra el caso aunque tenga medidas sin resolver; queda en auditoría.
+  closeCase: (id, summary, forzar = false) => request(`/api/cases/${id}/close`, { method: "POST", body: { summary, forzar }, auth: true }),
+
+  // --- Riesgo vital ---
+  riesgoVitalAlertas: () => request("/api/cases/alertas/riesgo-vital", { auth: true }),
+  marcarRiesgoVital: (id) => request(`/api/cases/${id}/riesgo-vital`, { method: "POST", auth: true }),
+  acusarRiesgoVital: (id) => request(`/api/cases/${id}/riesgo-vital/ack`, { method: "POST", auth: true }),
+
+  // --- Aviso de tratamiento y consentimiento de apoderados (Ley 21.719) ---
+  listConsents: () => request("/api/consents", { auth: true }),
+  consentCoverage: () => request("/api/consents/cobertura", { auth: true }),
+  sendConsent: (studentId, payload) => request(`/api/consents/${studentId}`, { method: "POST", body: payload, auth: true }),
+  bulkAviso: () => request("/api/consents/bulk/aviso", { method: "POST", auth: true }),
+  getAviso: (token) => request(`/api/consents/link/${token}`),
+  respondAviso: (token, estado) => request(`/api/consents/link/${token}/respond`, { method: "POST", body: { estado } }),
+  revocarAviso: (token) => request(`/api/consents/link/${token}/revocar`, { method: "POST" }),
   stepDone: (id, order) => request(`/api/cases/${id}/steps/${order}/done`, { method: "POST", auth: true }),
   addEvidence: (id, ev) => request(`/api/cases/${id}/evidence`, { method: "POST", body: ev, auth: true }),
   notifyCase: (id, mail) => request(`/api/cases/${id}/emails`, { method: "POST", body: mail, auth: true }),
@@ -75,6 +90,9 @@ export const api = {
   addCompromiso: (id, texto) => request(`/api/students/${id}/compromisos`, { method: "POST", body: { texto }, auth: true }),
   setCompromiso: (cid, cumplido) => request(`/api/students/compromisos/${cid}`, { method: "PATCH", body: { cumplido }, auth: true }),
   addMedida: (id, m) => request(`/api/students/${id}/medidas`, { method: "POST", body: m, auth: true }),
+  // Seguimiento de medidas (Ley 21.809): estado, responsable, plazo y evidencia.
+  updateMedida: (mid, patch) => request(`/api/students/medidas/${mid}`, { method: "PATCH", body: patch, auth: true }),
+  deleteMedida: (mid) => request(`/api/students/medidas/${mid}`, { method: "DELETE", auth: true }),
   deleteStudent: (id) => request(`/api/students/${id}`, { method: "DELETE", auth: true }),
   deleteCase: (id) => request(`/api/cases/${id}`, { method: "DELETE", auth: true }),
   deleteUser: (id) => request(`/api/users/${id}`, { method: "DELETE", auth: true }),
