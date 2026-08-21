@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart, Save,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -2067,6 +2067,8 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
   const [com, setCom] = useState("");
   const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "", responsable: "", plazo: "" });
+  // Modal de seguimiento de medidas: { medida, campo: "evidencia"|"responsable", estadoDestino? }
+  const [medModal, setMedModal] = useState(null);
 
   function update(fn) { setStudents((prev) => prev.map((x) => (x.id === s.id ? fn(x) : x))); }
   async function add(kind, record) {
@@ -2092,22 +2094,12 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       toast(e?.error || "No se pudo actualizar la medida. Se revirtió.");
     }
   }
-  function registrarEvidencia(m) {
-    const val = window.prompt("Evidencia del cumplimiento (acta, informe, enlace, descripción):", m.evidencia || "");
-    if (val === null) return;
-    updMedida(m.id, { evidencia: val.trim() });
-  }
-  function asignarResponsable(m) {
-    const val = window.prompt("¿Quién es responsable de ejecutar esta medida?", m.responsable || "");
-    if (val === null || !val.trim()) return;
-    updMedida(m.id, { responsable: val.trim() });
-  }
+  function registrarEvidencia(m) { setMedModal({ medida: m, campo: "evidencia" }); }
+  function asignarResponsable(m) { setMedModal({ medida: m, campo: "responsable" }); }
   // Marcar "cumplida" sin evidencia no está permitido en el servidor: se pide aquí primero.
   function cambiarEstadoMedida(m, estado) {
     if (estado === "cumplida" && !String(m.evidencia || "").trim()) {
-      const val = window.prompt("Para marcar la medida como cumplida, registra la evidencia:", "");
-      if (val === null || !val.trim()) { toast("Sin evidencia no se puede marcar como cumplida.", "info"); return; }
-      updMedida(m.id, { estado, evidencia: val.trim() });
+      setMedModal({ medida: m, campo: "evidencia", estadoDestino: "cumplida" });
       return;
     }
     updMedida(m.id, { estado });
@@ -2311,7 +2303,100 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           La Ley 21.809 exige poder demostrar el cumplimiento de las medidas: para marcar una como cumplida hay que registrar la evidencia.
         </p>
       </ExpBlock>
+
+      {medModal && (
+        <MedidaModal
+          {...medModal}
+          onClose={() => setMedModal(null)}
+          onConfirm={(valor) => {
+            const patch = { [medModal.campo]: valor };
+            if (medModal.estadoDestino) patch.estado = medModal.estadoDestino;
+            setMedModal(null);
+            updMedida(medModal.medida.id, patch);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// Captura de la evidencia de cumplimiento y del responsable de una medida.
+// Antes se usaba window.prompt: sin validación, sin varias líneas y sin poder explicar
+// qué se está pidiendo — pobre para un dato con valor probatorio (Ley 21.809).
+function MedidaModal({ medida, campo, estadoDestino, onClose, onConfirm }) {
+  const esEvidencia = campo === "evidencia";
+  const [valor, setValor] = useState(esEvidencia ? (medida.evidencia || "") : (medida.responsable || ""));
+  const valido = valor.trim().length > 0;
+
+  const titulo = estadoDestino
+    ? "Registrar el cumplimiento de la medida"
+    : esEvidencia
+      ? (medida.evidencia ? "Editar la evidencia" : "Registrar la evidencia")
+      : "Asignar responsable";
+
+  const campoStyle = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  function confirmar() {
+    if (!valido) return;
+    onConfirm(valor.trim());
+  }
+
+  return (
+    <Modal title={titulo} onClose={onClose}>
+      <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 mb-4 text-sm">
+        <div style={{ color: C.ink }}>{medida.descripcion}</div>
+        <div style={{ color: C.textSoft }} className="text-xs mt-0.5">
+          {(MEASURE_TYPES.find((x) => x.value === medida.tipo) || {}).label || medida.tipo}
+          {medida.plazo ? " · plazo " + medida.plazo : ""}
+        </div>
+      </div>
+
+      {estadoDestino && (
+        <p style={{ color: C.textSoft }} className="text-sm mb-3">
+          Para dar la medida por cumplida hay que dejar constancia de <b>cómo se verificó</b>.
+          Es lo que permite demostrar el cumplimiento ante una fiscalización.
+        </p>
+      )}
+
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">
+        {esEvidencia ? "Evidencia del cumplimiento" : "Responsable de ejecutar la medida"}
+      </label>
+
+      {esEvidencia ? (
+        <textarea
+          autoFocus
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          rows={4}
+          placeholder="Acta de la reunión, informe de orientación, enlace al documento, descripción de lo realizado…"
+          className="mt-1.5 w-full rounded-md p-2.5 text-sm"
+          style={campoStyle}
+        />
+      ) : (
+        <input
+          autoFocus
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") confirmar(); }}
+          placeholder="Nombre o cargo — por ejemplo, Orientación o Inspectoría General"
+          className="mt-1.5 w-full rounded-md p-2.5 text-sm"
+          style={campoStyle}
+        />
+      )}
+
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-2">
+        {esEvidencia
+          ? "Queda en el expediente del estudiante y en el registro de auditoría, con quién lo verificó y cuándo."
+          : "Queda registrado en el expediente para poder hacer seguimiento del cumplimiento."}
+      </p>
+
+      <div className="flex gap-2 justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={confirmar} disabled={!valido} accent={estadoDestino ? C.ok : C.primary}>
+          {estadoDestino ? <><CheckCircle2 size={14} /> Marcar como cumplida</> : <><Save size={14} /> Guardar</>}
+        </Btn>
+      </div>
+    </Modal>
   );
 }
 
