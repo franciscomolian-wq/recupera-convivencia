@@ -4401,11 +4401,19 @@ function PerfilesPage({ roleKey }) {
   const canManage = ["superadmin", "coordinador", "director"].includes(roleKey);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "" });
+  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState(null); // { url, name }
   const [copied, setCopied] = useState(false);
+  // El súper admin invita a cualquier colegio, así que tiene que poder elegirlo.
+  // Sin esto la cuenta se creaba sin establecimiento y la persona no veía nada.
+  const esSuper = roleKey === "superadmin";
+  const [establecimientos, setEstablecimientos] = useState([]);
+  useEffect(() => {
+    if (!esSuper) return;
+    api.listEstablishments().then(setEstablecimientos).catch(() => {});
+  }, [esSuper]);
 
   function reload() {
     if (!canManage) { setLoading(false); return; }
@@ -4420,7 +4428,7 @@ function PerfilesPage({ roleKey }) {
     try {
       const res = await api.inviteUser(form);
       setInvite({ url: res.inviteUrl, name: form.name, email: form.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured });
-      setForm({ name: "", rut: "", role: "profesorJefe", email: "" });
+      setForm((f) => ({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: f.establishmentId }));
       reload();
     } catch (err) {
       setError((err && (err.error || err.message)) || "No se pudo generar la invitación.");
@@ -4472,7 +4480,9 @@ function PerfilesPage({ roleKey }) {
   async function guardarEdicion() {
     if (!editing) return;
     try {
-      const upd = await api.updateUser(editing.id, { name: editing.name, email: editing.email, role: editing.role });
+      const cambios = { name: editing.name, email: editing.email, role: editing.role };
+      if (esSuper) cambios.establishmentId = editing.establishmentId || null;
+      const upd = await api.updateUser(editing.id, cambios);
       setUsers((prev) => prev.map((x) => (x.id === upd.id ? upd : x)));
       setEditing(null);
     } catch (err) { setError((err && (err.error || err.message)) || "No se pudo guardar."); }
@@ -4496,7 +4506,18 @@ function PerfilesPage({ roleKey }) {
             {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Correo (opcional)" className="rounded-md p-2.5 text-sm" style={inp} />
+          {esSuper && (
+            <select value={form.establishmentId} onChange={(e) => setForm({ ...form, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm sm:col-span-2" style={inp}>
+              <option value="">— Elige el establecimiento —</option>
+              {establecimientos.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
+            </select>
+          )}
         </div>
+        {esSuper && !form.establishmentId && (
+          <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
+            Estás invitando desde administración central: elige el colegio al que pertenece la persona, o la cuenta quedará sin acceso a nada.
+          </div>
+        )}
         {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 mt-3 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
         <div className="mt-3"><Btn onClick={submit} disabled={saving}>{saving ? "Generando…" : <><UserPlus size={15} /> Generar invitación</>}</Btn></div>
 
@@ -4519,6 +4540,18 @@ function PerfilesPage({ roleKey }) {
           </div>
         )}
       </Section>
+
+      {esSuper && users.some((u) => !u.establishmentId && u.role !== "superadmin") && (
+        <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3 mb-4 text-xs">
+          <div style={{ color: C.ink }} className="font-medium mb-1 flex items-center gap-1.5">
+            <AlertTriangle size={14} style={{ color: C.warn }} /> Hay cuentas sin establecimiento asignado
+          </div>
+          <div style={{ color: C.text }}>
+            {users.filter((u) => !u.establishmentId && u.role !== "superadmin").map((u) => u.name).join(", ")}
+            {" — "}pueden entrar a la plataforma pero no ven ningún dato. Edítalas y asígnales su colegio.
+          </div>
+        </div>
+      )}
 
       <Section icon={Upload} title="Carga masiva (varios usuarios a la vez)">
         <p style={{ color: C.textSoft }} className="text-sm mb-3">Sube un archivo <b>CSV</b> con columnas <code>nombre, rut, rol, correo</code>. Se crean todas las cuentas y se envía la invitación por correo a cada una automáticamente. Desde Excel: “Guardar como → CSV”.</p>
@@ -4585,7 +4618,7 @@ function PerfilesPage({ roleKey }) {
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setEditing({ id: u.id, name: u.name, email: u.email || "", role: u.role })} title="Editar usuario" style={{ color: C.primary }}><PenLine size={14} /></button>
+                    <button onClick={() => setEditing({ id: u.id, name: u.name, email: u.email || "", role: u.role, establishmentId: u.establishmentId || "" })} title="Editar usuario" style={{ color: C.primary }}><PenLine size={14} /></button>
                     <button onClick={() => borrar(u)} title="Eliminar usuario" style={{ color: C.textSoft }}><Trash2 size={14} /></button>
                   </div>
                   {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline">Reenviar</button>}
@@ -4606,6 +4639,19 @@ function PerfilesPage({ roleKey }) {
               <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
                 {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
+              {esSuper && (
+                <>
+                  <select value={editing.establishmentId} onChange={(e) => setEditing({ ...editing, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+                    <option value="">— Sin establecimiento —</option>
+                    {establecimientos.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
+                  </select>
+                  {!editing.establishmentId && (
+                    <div style={{ color: C.warn }} className="text-[11px]">
+                      Sin establecimiento, esta cuenta entra a la plataforma pero no ve ningún dato.
+                    </div>
+                  )}
+                </>
+              )}
               <div className="flex justify-end gap-2"><button onClick={() => setEditing(null)} className="text-sm px-4 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button><Btn onClick={guardarEdicion}>Guardar</Btn></div>
             </div>
           </div>
@@ -4667,6 +4713,7 @@ const ADMIN_NAV = {
   difusion: { label: "Difusión", icon: Megaphone },
   metricas: { label: "Métricas por institución", icon: BarChart3 },
   ranking: { label: "Ranking de cumplimiento", icon: Trophy },
+  usuarios: { label: "Usuarios de los colegios", icon: Users },
   sistema: { label: "Respaldo y estado", icon: Shield },
   configuracion: { label: "Configuración", icon: Settings },
 };
@@ -4704,6 +4751,7 @@ function AdminApp(props) {
         {view === "difusion" && <AdminBroadcast {...props} />}
         {view === "metricas" && <AdminMetrics {...props} />}
         {view === "ranking" && <AdminRanking {...props} />}
+        {view === "usuarios" && <PerfilesPage roleKey="superadmin" />}
         {view === "sistema" && <AdminSystem />}
         {view === "configuracion" && <AdminConfig {...props} />}
       </main>
