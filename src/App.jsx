@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Shield, Users, AlertTriangle, CheckCircle2, Clock,
   ChevronRight, Building2, UserCircle, Scale, Plus, X, Mail,
@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart, Save,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -20,11 +20,12 @@ import {
   RECON_CATEGORIES, RECON_BADGES,
 } from "./data.js";
 import {
-  fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
+  fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
   fmtUF, fmtCLP, billing, exportExcel,
 } from "./engine.js";
 import { api, getToken, setToken } from "./api.js";
+import { feriadosNacionales } from "./feriados.js";
 
 /* ---------------------------------------------------------------
    DESIGN TOKENS — se mantiene la línea actual (re-vestible con Stitch)
@@ -499,6 +500,8 @@ function App() {
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("reset") : null);
   const [citacionTok, setCitacionTok] = useState(() =>
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("citacion") : null);
+  const [avisoTok, setAvisoTok] = useState(() =>
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("aviso") : null);
   const [cases, setCases] = useState([]);
   const [users, setUsers] = useState(USERS);
   const [institutions, setInstitutions] = useState(INSTITUTIONS);
@@ -552,6 +555,11 @@ function App() {
         const ct = by("courseTeacher");
         setCourseTeachers(ct[0] || null);
         setReconCategories(by("reconCategory"));
+        // Los feriados del establecimiento se cargan aquí, no en la pantalla de
+        // Configuración: el cálculo de plazos tiene que tenerlos desde el primer
+        // caso que se cree en la sesión, no solo si alguien pasó por esa pantalla.
+        const fer = org.find((r) => r.kind === "feriados")?.data;
+        configurarFeriados({ extra: fer?.extra || [], quitar: fer?.quitar || [] });
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
@@ -567,6 +575,8 @@ function App() {
     return <ResetPassword token={resetTok} onDone={(user) => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); setSession(user); }} onCancel={() => { window.history.replaceState({}, "", window.location.pathname); setResetTok(null); }} />;
   if (citacionTok)
     return <CitacionConfirm token={citacionTok} onClose={() => { window.history.replaceState({}, "", window.location.pathname); setCitacionTok(null); }} />;
+  if (avisoTok)
+    return <AvisoTratamiento token={avisoTok} onClose={() => { window.history.replaceState({}, "", window.location.pathname); setAvisoTok(null); }} />;
   if (!session) return <Login onLogin={setSession} />;
 
   const shared = {
@@ -1005,6 +1015,93 @@ function ResetPassword({ token, onDone, onCancel }) {
 /* ---------------------------------------------------------------
    CONFIRMACIÓN DE CITACIÓN — página pública desde el enlace del correo
    ---------------------------------------------------------------- */
+// Aviso de tratamiento de datos y, cuando corresponde, solicitud de consentimiento a la
+// familia (Ley 21.719). Se abre con ?aviso=<token>, sin login. Cierra el hallazgo ALTA #4.
+function AvisoTratamiento({ token, onClose }) {
+  const [info, setInfo] = useState(null);
+  const [invalid, setInvalid] = useState("");
+  const [estado, setEstado] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.getAviso(token)
+      .then((d) => { setInfo(d); if (d.estado === "otorgado" || d.estado === "rechazado") setEstado(d.estado); })
+      .catch((err) => setInvalid((err && (err.error || err.message)) || "El enlace no es válido."));
+  }, [token]);
+
+  async function responder(valor) {
+    setLoading(true);
+    try { const r = await api.respondAviso(token, valor); setEstado(r.estado); }
+    catch (err) { setInvalid((err && (err.error || err.message)) || "No se pudo registrar tu respuesta."); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ background: C.appBg }} className="min-h-screen flex items-center justify-center p-6">
+      <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-8 w-full max-w-lg shadow-sm">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div style={{ background: C.primary }} className="w-10 h-10 rounded-full flex items-center justify-center"><Shield size={19} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.ink }} className="text-lg">Protección de datos</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Recupera Convivencia · Ley 21.719</div>
+          </div>
+        </div>
+
+        {invalid ? (
+          <div className="flex flex-col gap-4">
+            <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2"><AlertTriangle size={16} /> {invalid}</div>
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff" }}>Cerrar</button>
+          </div>
+        ) : !info ? (
+          <div style={{ color: C.textSoft }} className="text-sm">Cargando la información…</div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p style={{ color: C.textSoft }} className="text-sm">
+              Estimado/a {info.apoderado || "apoderado/a"}: el establecimiento registra información
+              de convivencia escolar de {info.studentName || "su pupilo/a"} en esta plataforma.
+            </p>
+
+            <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
+              <div style={{ ...mono, color: C.textSoft }} className="text-[10px] uppercase tracking-widest mb-1">Finalidad</div>
+              <div style={{ color: C.ink }}>{info.finalidad}</div>
+            </div>
+
+            <div style={{ background: info.requiereRespuesta ? "#FEF7E0" : "#E8F0FE", border: `1px solid ${info.requiereRespuesta ? C.warn : C.primary}` }} className="rounded-lg p-3 text-xs leading-relaxed">
+              {info.requiereRespuesta
+                ? "Esta finalidad excede la obligación legal del establecimiento, por lo que se solicita su consentimiento. Puede otorgarlo o rechazarlo, y revocarlo después. Rechazarlo no afecta la atención de su pupilo/a."
+                : "Este tratamiento se funda en el deber legal del establecimiento de resguardar la convivencia escolar, por lo que no requiere su consentimiento. Se le informa para que conozca su alcance."}
+            </div>
+
+            <div>
+              <div style={{ color: C.ink }} className="text-sm font-medium mb-1.5">Sus derechos</div>
+              <ul style={{ color: C.textSoft }} className="text-xs flex flex-col gap-1 list-disc pl-4">
+                {(info.derechos || []).map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+              <p style={{ color: C.textSoft }} className="text-xs mt-2">
+                Para ejercerlos, escriba a <span style={{ color: C.primary }}>{info.contacto}</span> o acérquese al establecimiento.
+              </p>
+            </div>
+
+            {info.requiereRespuesta && !estado && (
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => responder("otorgado")} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium flex-1" style={{ background: C.ok, color: "#fff", opacity: loading ? 0.5 : 1 }}>Otorgo mi consentimiento</button>
+                <button onClick={() => responder("rechazado")} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium flex-1" style={{ background: "#fff", color: C.urgent, border: `1px solid ${C.urgent}`, opacity: loading ? 0.5 : 1 }}>No lo otorgo</button>
+              </div>
+            )}
+            {estado && (
+              <div style={{ background: estado === "otorgado" ? C.ok + "18" : "#FCE8E6", color: estado === "otorgado" ? C.ok : C.urgent }} className="text-sm rounded-lg px-3 py-2.5 flex items-center gap-2">
+                <CheckCircle2 size={16} /> Respuesta registrada: {estado === "otorgado" ? "consentimiento otorgado" : "consentimiento rechazado"}.
+              </div>
+            )}
+
+            <button onClick={onClose} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: "#fff", color: C.ink, border: `1px solid ${C.cardBorder}` }}>Cerrar</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CitacionConfirm({ token, onClose }) {
   const [info, setInfo] = useState(null);
   const [invalid, setInvalid] = useState("");
@@ -1061,6 +1158,9 @@ function CitacionConfirm({ token, onClose }) {
             <button onClick={confirmar} disabled={loading} className="mbtn text-sm px-4 py-2.5 rounded-full font-medium" style={{ background: C.primary, color: "#fff", opacity: loading ? 0.5 : 1 }}>
               {loading ? "Confirmando…" : "Confirmar asistencia"}
             </button>
+            {info.aviso && (
+              <p style={{ color: C.textSoft }} className="text-[11px] leading-relaxed">{info.aviso}</p>
+            )}
             <p style={{ color: C.textSoft }} className="text-[11px] text-center">Si no puedes asistir, comunícate con el establecimiento para reagendar.</p>
           </div>
         )}
@@ -1482,6 +1582,7 @@ function PortalApp(props) {
         </div>
       <main className="flex-1 p-6 sm:p-10 min-w-0">
         <div className="hidden lg:flex justify-end mb-4"><NotificationBell items={notifItems} onOpen={() => { if (navKeys.includes("comunicacion")) go("comunicacion"); }} /></div>
+        <RiesgoVitalBanner roleKey={session.role} onOpenCase={openCase} />
         {view === "dashboard" && <Dashboard role={pageRole} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
         {view === "nuevo" && <CaseWizard students={students} protocols={props.protocols} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
         {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={pageRole} />}
@@ -1957,13 +2058,23 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
   );
 }
 
+// Estados del seguimiento de medidas (auditoría ALTA #6 · Ley 21.809).
+const MEDIDA_ESTADOS = {
+  pendiente: { label: "Pendiente", color: "#5F6368", bg: "#5F636822" },
+  en_curso: { label: "En curso", color: "#B26A00", bg: "#B26A0022" },
+  cumplida: { label: "Cumplida", color: "#1E8E3E", bg: "#1E8E3E22" },
+  incumplida: { label: "Incumplida", color: "#D93025", bg: "#D9302522" },
+};
+
 function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
   const readOnly = role.scope === "audit" || role.scope === "family";
   const scases = cases.filter((c) => caseHasStudent(c, s.id));
   const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "", foto: null });
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
   const [com, setCom] = useState("");
-  const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "" });
+  const [med, setMed] = useState({ tipo: "formativa", descripcion: "", fecha: "", responsable: "", plazo: "" });
+  // Modal de seguimiento de medidas: { medida, campo: "evidencia"|"responsable", estadoDestino? }
+  const [medModal, setMedModal] = useState(null);
 
   function update(fn) { setStudents((prev) => prev.map((x) => (x.id === s.id ? fn(x) : x))); }
   async function add(kind, record) {
@@ -1976,6 +2087,39 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       else created = { id: `${kind}${Date.now()}`, ...record };
       update((x) => ({ ...x, [kind]: [...(x[kind] || []), created] }));
     } catch (e) { console.error("add", kind, e); toast("No se pudo guardar el registro. Inténtalo de nuevo."); }
+  }
+  // Seguimiento de la medida (auditoría ALTA #6). Optimista, con reversión si el servidor falla.
+  async function updMedida(mid, patch) {
+    let prev = null;
+    update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => { if (m.id !== mid) return m; prev = m; return { ...m, ...patch }; }) }));
+    try {
+      const saved = await api.updateMedida(mid, patch);
+      update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? saved : m)) }));
+    } catch (e) {
+      if (prev) update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? prev : m)) }));
+      toast(e?.error || "No se pudo actualizar la medida. Se revirtió.");
+    }
+  }
+  // Portabilidad: entrega a la familia una copia completa del expediente.
+  const [exportando, setExportando] = useState(false);
+  async function exportarExpediente() {
+    setExportando(true);
+    try {
+      await api.exportStudent(s._dbId || s.id, s.name);
+      toast("Expediente descargado. Contiene datos sensibles: guárdalo en un lugar seguro.", "info");
+    } catch (e) {
+      toast(e?.error || "No se pudo generar el expediente.");
+    } finally { setExportando(false); }
+  }
+  function registrarEvidencia(m) { setMedModal({ medida: m, campo: "evidencia" }); }
+  function asignarResponsable(m) { setMedModal({ medida: m, campo: "responsable" }); }
+  // Marcar "cumplida" sin evidencia no está permitido en el servidor: se pide aquí primero.
+  function cambiarEstadoMedida(m, estado) {
+    if (estado === "cumplida" && !String(m.evidencia || "").trim()) {
+      setMedModal({ medida: m, campo: "evidencia", estadoDestino: "cumplida" });
+      return;
+    }
+    updMedida(m.id, { estado });
   }
   function toggleCompromiso(cid) {
     const cur = (s.compromisos || []).find((k) => k.id === cid);
@@ -2001,7 +2145,12 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
             <div style={{ color: C.textSoft }} className="text-sm">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""} · Expediente digital único</div>
           </div>
         </div>
-        <Toolbar onPrint={printView} />
+        <div className="flex items-center gap-2 flex-wrap print:hidden">
+          <Btn variant="ghost" onClick={exportarExpediente} disabled={exportando}>
+            <Download size={15} /> {exportando ? "Generando…" : "Descargar expediente"}
+          </Btn>
+          <Toolbar onPrint={printView} />
+        </div>
       </div>
 
       <ExpBlock icon={FolderOpen} title={`Casos del estudiante (${scases.length})`}>
@@ -2121,10 +2270,41 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           {(s.medidas || []).map((m) => {
             const mt = MEASURE_TYPES.find((t) => t.value === m.tipo);
             const col = m.tipo === "disciplinaria" ? C.urgent : m.tipo === "pedagogica" ? C.warn : C.primary;
+            const est = MEDIDA_ESTADOS[m.estado || "pendiente"] || MEDIDA_ESTADOS.pendiente;
+            const vencida = m.plazo && !["cumplida", "incumplida"].includes(m.estado) && new Date(m.plazo) < new Date(new Date().toDateString());
             return (
-              <div key={m.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex items-center justify-between gap-2 flex-wrap">
-                <div><span style={{ color: C.ink }}>{m.descripcion}</span> <span style={{ color: C.textSoft }}>· {m.fecha || "sin fecha"}</span></div>
-                {chip(col + "22", col, mt ? mt.label : m.tipo)}
+              <div key={m.id} style={{ background: C.paper }} className="rounded-md p-2.5 text-xs flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div><span style={{ color: C.ink }}>{m.descripcion}</span> <span style={{ color: C.textSoft }}>· {m.fecha || "sin fecha"}</span></div>
+                  <div className="flex items-center gap-1.5">
+                    {chip(est.bg, est.color, est.label)}
+                    {chip(col + "22", col, mt ? mt.label : m.tipo)}
+                  </div>
+                </div>
+                <div style={{ color: C.textSoft }} className="flex items-center gap-2 flex-wrap text-[11px]">
+                  <span>Responsable: <b style={{ color: C.ink }}>{m.responsable || "sin asignar"}</b></span>
+                  <span>·</span>
+                  <span style={{ color: vencida ? C.urgent : C.textSoft }}>
+                    Plazo: <b style={{ color: vencida ? C.urgent : C.ink }}>{m.plazo || "sin plazo"}</b>{vencida ? " (vencido)" : ""}
+                  </span>
+                  {m.verificadaAt && (<><span>·</span><span>Verificada por <b style={{ color: C.ink }}>{m.verificadaPor}</b></span></>)}
+                </div>
+                {m.evidencia && (
+                  <div style={{ color: C.textSoft }} className="text-[11px]">Evidencia: <span style={{ color: C.ink }}>{m.evidencia}</span></div>
+                )}
+                {!readOnly && (
+                  <div className="flex items-center gap-1.5 flex-wrap print:hidden mt-0.5">
+                    <select value={m.estado || "pendiente"} onChange={(e) => cambiarEstadoMedida(m, e.target.value)} className="rounded-md p-1 text-[11px]" style={inp}>
+                      {Object.entries(MEDIDA_ESTADOS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <button onClick={() => registrarEvidencia(m)} className="text-[11px] px-2 py-1 rounded-md" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                      {m.evidencia ? "Editar evidencia" : "Registrar evidencia"}
+                    </button>
+                    {!m.responsable && (
+                      <button onClick={() => asignarResponsable(m)} className="text-[11px] px-2 py-1 rounded-md" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>Asignar responsable</button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2135,12 +2315,110 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
               {MEASURE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
             <input value={med.descripcion} onChange={(e) => setMed({ ...med, descripcion: e.target.value })} placeholder="Descripción" className="rounded-md p-2 text-sm flex-1 min-w-[160px]" style={inp} />
-            <input type="date" value={med.fecha} onChange={(e) => setMed({ ...med, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
-            <Btn onClick={() => { if (med.descripcion.trim()) { add("medidas", med); setMed({ tipo: "formativa", descripcion: "", fecha: "" }); } }}><Plus size={14} /> Agregar</Btn>
+            <input value={med.responsable} onChange={(e) => setMed({ ...med, responsable: e.target.value })} placeholder="Responsable" className="rounded-md p-2 text-sm min-w-[130px]" style={inp} />
+            <label className="flex items-center gap-1 text-xs" style={{ color: C.textSoft }}>Aplicada<input type="date" value={med.fecha} onChange={(e) => setMed({ ...med, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /></label>
+            <label className="flex items-center gap-1 text-xs" style={{ color: C.textSoft }}>Plazo<input type="date" value={med.plazo} onChange={(e) => setMed({ ...med, plazo: e.target.value })} className="rounded-md p-2 text-sm" style={inp} /></label>
+            <Btn onClick={() => { if (med.descripcion.trim()) { add("medidas", med); setMed({ tipo: "formativa", descripcion: "", fecha: "", responsable: "", plazo: "" }); } }}><Plus size={14} /> Agregar</Btn>
           </div>
         )}
+        <p style={{ color: C.textSoft }} className="text-[11px] mt-2 print:hidden">
+          La Ley 21.809 exige poder demostrar el cumplimiento de las medidas: para marcar una como cumplida hay que registrar la evidencia.
+        </p>
       </ExpBlock>
+
+      {medModal && (
+        <MedidaModal
+          {...medModal}
+          onClose={() => setMedModal(null)}
+          onConfirm={(valor) => {
+            const patch = { [medModal.campo]: valor };
+            if (medModal.estadoDestino) patch.estado = medModal.estadoDestino;
+            setMedModal(null);
+            updMedida(medModal.medida.id, patch);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// Captura de la evidencia de cumplimiento y del responsable de una medida.
+// Antes se usaba window.prompt: sin validación, sin varias líneas y sin poder explicar
+// qué se está pidiendo — pobre para un dato con valor probatorio (Ley 21.809).
+function MedidaModal({ medida, campo, estadoDestino, onClose, onConfirm }) {
+  const esEvidencia = campo === "evidencia";
+  const [valor, setValor] = useState(esEvidencia ? (medida.evidencia || "") : (medida.responsable || ""));
+  const valido = valor.trim().length > 0;
+
+  const titulo = estadoDestino
+    ? "Registrar el cumplimiento de la medida"
+    : esEvidencia
+      ? (medida.evidencia ? "Editar la evidencia" : "Registrar la evidencia")
+      : "Asignar responsable";
+
+  const campoStyle = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  function confirmar() {
+    if (!valido) return;
+    onConfirm(valor.trim());
+  }
+
+  return (
+    <Modal title={titulo} onClose={onClose}>
+      <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 mb-4 text-sm">
+        <div style={{ color: C.ink }}>{medida.descripcion}</div>
+        <div style={{ color: C.textSoft }} className="text-xs mt-0.5">
+          {(MEASURE_TYPES.find((x) => x.value === medida.tipo) || {}).label || medida.tipo}
+          {medida.plazo ? " · plazo " + medida.plazo : ""}
+        </div>
+      </div>
+
+      {estadoDestino && (
+        <p style={{ color: C.textSoft }} className="text-sm mb-3">
+          Para dar la medida por cumplida hay que dejar constancia de <b>cómo se verificó</b>.
+          Es lo que permite demostrar el cumplimiento ante una fiscalización.
+        </p>
+      )}
+
+      <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">
+        {esEvidencia ? "Evidencia del cumplimiento" : "Responsable de ejecutar la medida"}
+      </label>
+
+      {esEvidencia ? (
+        <textarea
+          autoFocus
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          rows={4}
+          placeholder="Acta de la reunión, informe de orientación, enlace al documento, descripción de lo realizado…"
+          className="mt-1.5 w-full rounded-md p-2.5 text-sm"
+          style={campoStyle}
+        />
+      ) : (
+        <input
+          autoFocus
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") confirmar(); }}
+          placeholder="Nombre o cargo — por ejemplo, Orientación o Inspectoría General"
+          className="mt-1.5 w-full rounded-md p-2.5 text-sm"
+          style={campoStyle}
+        />
+      )}
+
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-2">
+        {esEvidencia
+          ? "Queda en el expediente del estudiante y en el registro de auditoría, con quién lo verificó y cuándo."
+          : "Queda registrado en el expediente para poder hacer seguimiento del cumplimiento."}
+      </p>
+
+      <div className="flex gap-2 justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={confirmar} disabled={!valido} accent={estadoDestino ? C.ok : C.primary}>
+          {estadoDestino ? <><CheckCircle2 size={14} /> Marcar como cumplida</> : <><Save size={14} /> Guardar</>}
+        </Btn>
+      </div>
+    </Modal>
   );
 }
 
@@ -3431,11 +3709,28 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
   // Restaura el caso a un snapshot previo (para revertir una acción que falló en el servidor).
   function revertTo(snapshot) { setCases((prev) => prev.map((x) => (x.id === c.id ? snapshot : x))); }
-  function closeCase(summary) {
+  // Cerrar el caso. Si el servidor responde 409 hay medidas sin resolver: se pregunta
+  // antes de forzar, y el cierre forzado queda registrado en auditoría (Ley 21.809).
+  async function closeCase(summary, forzar = false) {
     let prev = null;
     update((x) => { prev = x; return { ...x, closed: true, closedAt: new Date(), closeSummary: summary, log: [...x.log, { at: new Date(), who: role.label, text: `Caso cerrado. ${summary}` }] }; });
     setCloseOpen(false);
-    if (c._dbId) api.closeCase(c._dbId, summary).catch((e) => { console.error("closeCase", e); toast("No se pudo cerrar el caso. Se revirtió."); if (prev) revertTo(prev); });
+    if (!c._dbId) return;
+    try {
+      await api.closeCase(c._dbId, summary, forzar);
+    } catch (e) {
+      if (prev) revertTo(prev);
+      if (e?.status === 409 && e?.requiereJustificacion) {
+        const seguir = window.confirm(
+          `${e.error}\n\n¿Cerrar igualmente?\n\nEl cierre quedará registrado en auditoría como cierre forzado con ${e.medidasPendientes} medida(s) sin verificar.`
+        );
+        if (seguir) return closeCase(summary, true);
+        toast("El caso no se cerró. Verifica el cumplimiento de las medidas.", "info");
+        return;
+      }
+      console.error("closeCase", e);
+      toast("No se pudo cerrar el caso. Se revirtió.");
+    }
   }
   function markDone(stepId) {
     let prev = null;
@@ -3633,6 +3928,55 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
       {emailOpen && <EmailModal c={c} templates={templates} onClose={() => setEmailOpen(false)} onSend={doNotify} />}
       {derivOpen && <DerivationModal c={c} institutions={institutions} onClose={() => setDerivOpen(false)} onDerive={doDerive} />}
       {closeOpen && <CloseCaseModal onClose={() => setCloseOpen(false)} onConfirm={closeCase} />}
+    </div>
+  );
+}
+
+// Alerta inmediata de riesgo vital (auditoría ALTA #11). Se muestra sobre cualquier vista
+// mientras haya un caso activo sin acuse de Orientación / dupla psicosocial / Dirección.
+const ROLES_ACUSE_RIESGO = ["superadmin", "director", "coordinador", "orientacion", "pie"];
+
+function RiesgoVitalBanner({ roleKey, onOpenCase }) {
+  const [items, setItems] = useState([]);
+  const puedeAcusar = ROLES_ACUSE_RIESGO.includes(roleKey);
+
+  const cargar = React.useCallback(() => {
+    api.riesgoVitalAlertas().then(setItems).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    cargar();
+    // Refresco periódico: una alerta de riesgo vital no puede esperar a que se recargue la página.
+    const id = setInterval(cargar, 60_000);
+    return () => clearInterval(id);
+  }, [cargar]);
+
+  async function acusar(dbId) {
+    setItems((prev) => prev.filter((x) => x.id !== dbId));
+    try { await api.acusarRiesgoVital(dbId); }
+    catch (e) { console.error("ackRiesgoVital", e); toast("No se pudo registrar el acuse. Se restauró la alerta."); cargar(); }
+  }
+
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-col gap-2 mb-5 print:hidden">
+      {items.map((a) => (
+        <div key={a.id} style={{ background: "#FCE8E6", border: `1px solid ${C.urgent}` }} className="rounded-xl p-3.5 flex items-start gap-3 flex-wrap">
+          <AlertTriangle size={20} style={{ color: C.urgent }} className="shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-[220px]">
+            <div style={{ color: C.urgent }} className="text-sm font-semibold">Caso de riesgo vital activo · {a.code}</div>
+            <div style={{ color: C.text }} className="text-xs mt-0.5">
+              {a.studentLabel}{a.curso ? " · " + a.curso : ""} — paso de día 0: <b>no dejar solo/a al estudiante</b> y activar el protocolo de salud mental.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => onOpenCase(a.code)} className="mbtn text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: C.urgent, color: "#fff" }}>Abrir el caso</button>
+            {puedeAcusar && (
+              <button onClick={() => acusar(a.id)} className="mbtn text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: "#fff", color: C.urgent, border: `1px solid ${C.urgent}` }}>Acusar recibo</button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -4079,11 +4423,19 @@ function PerfilesPage({ roleKey }) {
   const canManage = ["superadmin", "coordinador", "director"].includes(roleKey);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "" });
+  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState(null); // { url, name }
   const [copied, setCopied] = useState(false);
+  // El súper admin invita a cualquier colegio, así que tiene que poder elegirlo.
+  // Sin esto la cuenta se creaba sin establecimiento y la persona no veía nada.
+  const esSuper = roleKey === "superadmin";
+  const [establecimientos, setEstablecimientos] = useState([]);
+  useEffect(() => {
+    if (!esSuper) return;
+    api.listEstablishments().then(setEstablecimientos).catch(() => {});
+  }, [esSuper]);
 
   function reload() {
     if (!canManage) { setLoading(false); return; }
@@ -4098,7 +4450,7 @@ function PerfilesPage({ roleKey }) {
     try {
       const res = await api.inviteUser(form);
       setInvite({ url: res.inviteUrl, name: form.name, email: form.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured });
-      setForm({ name: "", rut: "", role: "profesorJefe", email: "" });
+      setForm((f) => ({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: f.establishmentId }));
       reload();
     } catch (err) {
       setError((err && (err.error || err.message)) || "No se pudo generar la invitación.");
@@ -4150,7 +4502,9 @@ function PerfilesPage({ roleKey }) {
   async function guardarEdicion() {
     if (!editing) return;
     try {
-      const upd = await api.updateUser(editing.id, { name: editing.name, email: editing.email, role: editing.role });
+      const cambios = { name: editing.name, email: editing.email, role: editing.role };
+      if (esSuper) cambios.establishmentId = editing.establishmentId || null;
+      const upd = await api.updateUser(editing.id, cambios);
       setUsers((prev) => prev.map((x) => (x.id === upd.id ? upd : x)));
       setEditing(null);
     } catch (err) { setError((err && (err.error || err.message)) || "No se pudo guardar."); }
@@ -4174,7 +4528,18 @@ function PerfilesPage({ roleKey }) {
             {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Correo (opcional)" className="rounded-md p-2.5 text-sm" style={inp} />
+          {esSuper && (
+            <select value={form.establishmentId} onChange={(e) => setForm({ ...form, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm sm:col-span-2" style={inp}>
+              <option value="">— Elige el establecimiento —</option>
+              {establecimientos.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
+            </select>
+          )}
         </div>
+        {esSuper && !form.establishmentId && (
+          <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
+            Estás invitando desde administración central: elige el colegio al que pertenece la persona, o la cuenta quedará sin acceso a nada.
+          </div>
+        )}
         {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 mt-3 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
         <div className="mt-3"><Btn onClick={submit} disabled={saving}>{saving ? "Generando…" : <><UserPlus size={15} /> Generar invitación</>}</Btn></div>
 
@@ -4197,6 +4562,18 @@ function PerfilesPage({ roleKey }) {
           </div>
         )}
       </Section>
+
+      {esSuper && users.some((u) => !u.establishmentId && u.role !== "superadmin") && (
+        <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3 mb-4 text-xs">
+          <div style={{ color: C.ink }} className="font-medium mb-1 flex items-center gap-1.5">
+            <AlertTriangle size={14} style={{ color: C.warn }} /> Hay cuentas sin establecimiento asignado
+          </div>
+          <div style={{ color: C.text }}>
+            {users.filter((u) => !u.establishmentId && u.role !== "superadmin").map((u) => u.name).join(", ")}
+            {" — "}pueden entrar a la plataforma pero no ven ningún dato. Edítalas y asígnales su colegio.
+          </div>
+        </div>
+      )}
 
       <Section icon={Upload} title="Carga masiva (varios usuarios a la vez)">
         <p style={{ color: C.textSoft }} className="text-sm mb-3">Sube un archivo <b>CSV</b> con columnas <code>nombre, rut, rol, correo</code>. Se crean todas las cuentas y se envía la invitación por correo a cada una automáticamente. Desde Excel: “Guardar como → CSV”.</p>
@@ -4263,7 +4640,7 @@ function PerfilesPage({ roleKey }) {
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setEditing({ id: u.id, name: u.name, email: u.email || "", role: u.role })} title="Editar usuario" style={{ color: C.primary }}><PenLine size={14} /></button>
+                    <button onClick={() => setEditing({ id: u.id, name: u.name, email: u.email || "", role: u.role, establishmentId: u.establishmentId || "" })} title="Editar usuario" style={{ color: C.primary }}><PenLine size={14} /></button>
                     <button onClick={() => borrar(u)} title="Eliminar usuario" style={{ color: C.textSoft }}><Trash2 size={14} /></button>
                   </div>
                   {!u.activated && <button onClick={() => reinvitar(u)} title="Regenerar enlace" style={{ color: C.primary }} className="text-[11px] underline">Reenviar</button>}
@@ -4284,6 +4661,19 @@ function PerfilesPage({ roleKey }) {
               <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
                 {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
+              {esSuper && (
+                <>
+                  <select value={editing.establishmentId} onChange={(e) => setEditing({ ...editing, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+                    <option value="">— Sin establecimiento —</option>
+                    {establecimientos.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
+                  </select>
+                  {!editing.establishmentId && (
+                    <div style={{ color: C.warn }} className="text-[11px]">
+                      Sin establecimiento, esta cuenta entra a la plataforma pero no ve ningún dato.
+                    </div>
+                  )}
+                </>
+              )}
               <div className="flex justify-end gap-2"><button onClick={() => setEditing(null)} className="text-sm px-4 py-2 rounded-md" style={{ color: C.textSoft }}>Cancelar</button><Btn onClick={guardarEdicion}>Guardar</Btn></div>
             </div>
           </div>
@@ -4321,7 +4711,130 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
         </div>
         <div className="mt-3 flex items-center gap-3"><Btn onClick={() => { setEmailTemplates(tpls); setSavedTpl(true); setTimeout(() => setSavedTpl(false), 2000); }}><CheckCircle2 size={15} /> Guardar plantillas</Btn>{savedTpl && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}</div>
       </Section>
+
+      <FeriadosSection />
     </div>
+  );
+}
+
+/* ---------------- FERIADOS: lo que descuenta el cálculo de plazos ----------- */
+// Los plazos de los protocolos se cuentan en días hábiles. Esta pantalla existe
+// porque hay feriados que ninguna fórmula puede deducir: los regionales, los de
+// ley especial (elecciones, censos) y el Día de los Pueblos Indígenas, que sigue
+// al solsticio y algunos años cae el 20 en vez del 21.
+function FeriadosSection() {
+  const anio = new Date().getFullYear();
+  const nacionales = useMemo(() => feriadosNacionales(anio), [anio]);
+  const [extra, setExtra] = useState([]);
+  const [quitados, setQuitados] = useState([]);
+  const [nuevo, setNuevo] = useState({ fecha: "", nombre: "" });
+  const [guardado, setGuardado] = useState(false);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api.listOrgRecords()
+      .then((rs) => {
+        const rec = (rs || []).find((r) => r.kind === "feriados");
+        if (rec?.data) {
+          setExtra(rec.data.extra || []);
+          setQuitados(rec.data.quitar || []);
+          configurarFeriados({ extra: rec.data.extra || [], quitar: rec.data.quitar || [] });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar(nextExtra, nextQuitar) {
+    setExtra(nextExtra); setQuitados(nextQuitar);
+    configurarFeriados({ extra: nextExtra, quitar: nextQuitar });
+    try {
+      const rs = await api.listOrgRecords();
+      const rec = (rs || []).find((r) => r.kind === "feriados");
+      const data = { extra: nextExtra, quitar: nextQuitar };
+      if (rec) await api.updateOrgRecord(rec.id, data);
+      else await api.addOrgRecord("feriados", data);
+      setGuardado(true); setTimeout(() => setGuardado(false), 2000);
+    } catch (e) {
+      toast("No se pudieron guardar los feriados. Inténtalo de nuevo.");
+    }
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const diaSemana = (f) => ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(f + "T12:00:00").getDay()];
+
+  return (
+    <Section icon={CalendarClock} title={`Feriados que descuentan los plazos (${anio})`}>
+      <p style={{ color: C.textSoft }} className="text-sm mb-3">
+        Los plazos de los protocolos se cuentan en <b>días hábiles</b>: el cálculo salta fines de
+        semana y estos feriados. Si falta uno, el plazo vencería antes de lo que corresponde.
+      </p>
+
+      <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3 mb-4 text-xs">
+        <div style={{ color: C.ink }} className="font-medium mb-1">Dos cosas que conviene revisar una vez al año</div>
+        <ul style={{ color: C.text }} className="list-disc pl-4 flex flex-col gap-1">
+          <li><b>Feriados regionales.</b> El 7 de junio en Arica y Parinacota, el 20 de agosto en
+            Chillán y Chillán Viejo. No vienen incluidos: agrégalos si corresponden a tu comuna.</li>
+          <li><b>Día de los Pueblos Indígenas.</b> Sigue al solsticio de invierno: casi siempre el
+            21 de junio, pero algunos años cae el 20 (por ejemplo, 2024). Confírmalo contra el
+            calendario oficial y corrígelo si este año cambia.</li>
+        </ul>
+      </div>
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Feriados nacionales calculados</div>
+      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 mb-4">
+        {nacionales.map((f) => {
+          const fuera = quitados.includes(f.fecha);
+          return (
+            <div key={f.fecha} className="flex items-center gap-2 text-xs py-1" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+              <span style={{ ...mono, color: fuera ? C.textSoft : C.ink, textDecoration: fuera ? "line-through" : "none" }}>{f.fecha}</span>
+              <span style={{ color: fuera ? C.textSoft : C.text, textDecoration: fuera ? "line-through" : "none" }} className="flex-1">
+                {f.nombre} <span style={{ color: C.textSoft }}>· {diaSemana(f.fecha)}</span>
+              </span>
+              <button
+                onClick={() => guardar(extra, fuera ? quitados.filter((x) => x !== f.fecha) : [...quitados, f.fecha])}
+                style={{ color: fuera ? C.primary : C.textSoft }} className="text-[11px]">
+                {fuera ? "Reponer" : "No aplica"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Feriados propios del establecimiento</div>
+      {extra.length === 0 && !cargando && (
+        <div style={{ color: C.textSoft }} className="text-xs mb-2">Ninguno agregado todavía.</div>
+      )}
+      <div className="flex flex-col gap-1 mb-3">
+        {extra.map((f) => (
+          <div key={f.fecha} className="flex items-center gap-2 text-xs py-1" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+            <span style={{ ...mono, color: C.ink }}>{f.fecha}</span>
+            <span style={{ color: C.text }} className="flex-1">{f.nombre} <span style={{ color: C.textSoft }}>· {diaSemana(f.fecha)}</span></span>
+            <button onClick={() => guardar(extra.filter((x) => x.fecha !== f.fecha), quitados)} style={{ color: C.urgent }} className="text-[11px]">Quitar</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <input type="date" value={nuevo.fecha} onChange={(e) => setNuevo({ ...nuevo, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+        <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Motivo (feriado regional, elecciones…)" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+        <Btn
+          disabled={!nuevo.fecha || !nuevo.nombre.trim()}
+          onClick={() => {
+            if (extra.some((x) => x.fecha === nuevo.fecha)) { toast("Esa fecha ya está en la lista.", "info"); return; }
+            guardar([...extra, { fecha: nuevo.fecha, nombre: nuevo.nombre.trim() }].sort((a, b) => a.fecha.localeCompare(b.fecha)), quitados);
+            setNuevo({ fecha: "", nombre: "" });
+          }}>
+          <Plus size={14} /> Agregar
+        </Btn>
+        {guardado && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}
+      </div>
+
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-3">
+        Los cambios afectan a los casos que se creen de aquí en adelante. Los plazos ya calculados
+        no se recalculan solos, para no mover fechas de casos en curso.
+      </p>
+    </Section>
   );
 }
 
@@ -4345,6 +4858,7 @@ const ADMIN_NAV = {
   difusion: { label: "Difusión", icon: Megaphone },
   metricas: { label: "Métricas por institución", icon: BarChart3 },
   ranking: { label: "Ranking de cumplimiento", icon: Trophy },
+  usuarios: { label: "Usuarios de los colegios", icon: Users },
   sistema: { label: "Respaldo y estado", icon: Shield },
   configuracion: { label: "Configuración", icon: Settings },
 };
@@ -4382,6 +4896,7 @@ function AdminApp(props) {
         {view === "difusion" && <AdminBroadcast {...props} />}
         {view === "metricas" && <AdminMetrics {...props} />}
         {view === "ranking" && <AdminRanking {...props} />}
+        {view === "usuarios" && <PerfilesPage roleKey="superadmin" />}
         {view === "sistema" && <AdminSystem />}
         {view === "configuracion" && <AdminConfig {...props} />}
       </main>
