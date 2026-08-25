@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Shield, Users, AlertTriangle, CheckCircle2, Clock,
   ChevronRight, Building2, UserCircle, Scale, Plus, X, Mail,
@@ -20,11 +20,12 @@ import {
   RECON_CATEGORIES, RECON_BADGES,
 } from "./data.js";
 import {
-  fmt, daysLeft, urgencyColor, buildCase, analyzeSituation,
+  fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
   fmtUF, fmtCLP, billing, exportExcel,
 } from "./engine.js";
 import { api, getToken, setToken } from "./api.js";
+import { feriadosNacionales } from "./feriados.js";
 
 /* ---------------------------------------------------------------
    DESIGN TOKENS — se mantiene la línea actual (re-vestible con Stitch)
@@ -554,6 +555,11 @@ function App() {
         const ct = by("courseTeacher");
         setCourseTeachers(ct[0] || null);
         setReconCategories(by("reconCategory"));
+        // Los feriados del establecimiento se cargan aquí, no en la pantalla de
+        // Configuración: el cálculo de plazos tiene que tenerlos desde el primer
+        // caso que se cree en la sesión, no solo si alguien pasó por esa pantalla.
+        const fer = org.find((r) => r.kind === "feriados")?.data;
+        configurarFeriados({ extra: fer?.extra || [], quitar: fer?.quitar || [] });
       })
       .catch(() => {})
       .finally(() => vivo && setDataLoading(false));
@@ -4705,7 +4711,130 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
         </div>
         <div className="mt-3 flex items-center gap-3"><Btn onClick={() => { setEmailTemplates(tpls); setSavedTpl(true); setTimeout(() => setSavedTpl(false), 2000); }}><CheckCircle2 size={15} /> Guardar plantillas</Btn>{savedTpl && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}</div>
       </Section>
+
+      <FeriadosSection />
     </div>
+  );
+}
+
+/* ---------------- FERIADOS: lo que descuenta el cálculo de plazos ----------- */
+// Los plazos de los protocolos se cuentan en días hábiles. Esta pantalla existe
+// porque hay feriados que ninguna fórmula puede deducir: los regionales, los de
+// ley especial (elecciones, censos) y el Día de los Pueblos Indígenas, que sigue
+// al solsticio y algunos años cae el 20 en vez del 21.
+function FeriadosSection() {
+  const anio = new Date().getFullYear();
+  const nacionales = useMemo(() => feriadosNacionales(anio), [anio]);
+  const [extra, setExtra] = useState([]);
+  const [quitados, setQuitados] = useState([]);
+  const [nuevo, setNuevo] = useState({ fecha: "", nombre: "" });
+  const [guardado, setGuardado] = useState(false);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api.listOrgRecords()
+      .then((rs) => {
+        const rec = (rs || []).find((r) => r.kind === "feriados");
+        if (rec?.data) {
+          setExtra(rec.data.extra || []);
+          setQuitados(rec.data.quitar || []);
+          configurarFeriados({ extra: rec.data.extra || [], quitar: rec.data.quitar || [] });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar(nextExtra, nextQuitar) {
+    setExtra(nextExtra); setQuitados(nextQuitar);
+    configurarFeriados({ extra: nextExtra, quitar: nextQuitar });
+    try {
+      const rs = await api.listOrgRecords();
+      const rec = (rs || []).find((r) => r.kind === "feriados");
+      const data = { extra: nextExtra, quitar: nextQuitar };
+      if (rec) await api.updateOrgRecord(rec.id, data);
+      else await api.addOrgRecord("feriados", data);
+      setGuardado(true); setTimeout(() => setGuardado(false), 2000);
+    } catch (e) {
+      toast("No se pudieron guardar los feriados. Inténtalo de nuevo.");
+    }
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const diaSemana = (f) => ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(f + "T12:00:00").getDay()];
+
+  return (
+    <Section icon={CalendarClock} title={`Feriados que descuentan los plazos (${anio})`}>
+      <p style={{ color: C.textSoft }} className="text-sm mb-3">
+        Los plazos de los protocolos se cuentan en <b>días hábiles</b>: el cálculo salta fines de
+        semana y estos feriados. Si falta uno, el plazo vencería antes de lo que corresponde.
+      </p>
+
+      <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3 mb-4 text-xs">
+        <div style={{ color: C.ink }} className="font-medium mb-1">Dos cosas que conviene revisar una vez al año</div>
+        <ul style={{ color: C.text }} className="list-disc pl-4 flex flex-col gap-1">
+          <li><b>Feriados regionales.</b> El 7 de junio en Arica y Parinacota, el 20 de agosto en
+            Chillán y Chillán Viejo. No vienen incluidos: agrégalos si corresponden a tu comuna.</li>
+          <li><b>Día de los Pueblos Indígenas.</b> Sigue al solsticio de invierno: casi siempre el
+            21 de junio, pero algunos años cae el 20 (por ejemplo, 2024). Confírmalo contra el
+            calendario oficial y corrígelo si este año cambia.</li>
+        </ul>
+      </div>
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Feriados nacionales calculados</div>
+      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 mb-4">
+        {nacionales.map((f) => {
+          const fuera = quitados.includes(f.fecha);
+          return (
+            <div key={f.fecha} className="flex items-center gap-2 text-xs py-1" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+              <span style={{ ...mono, color: fuera ? C.textSoft : C.ink, textDecoration: fuera ? "line-through" : "none" }}>{f.fecha}</span>
+              <span style={{ color: fuera ? C.textSoft : C.text, textDecoration: fuera ? "line-through" : "none" }} className="flex-1">
+                {f.nombre} <span style={{ color: C.textSoft }}>· {diaSemana(f.fecha)}</span>
+              </span>
+              <button
+                onClick={() => guardar(extra, fuera ? quitados.filter((x) => x !== f.fecha) : [...quitados, f.fecha])}
+                style={{ color: fuera ? C.primary : C.textSoft }} className="text-[11px]">
+                {fuera ? "Reponer" : "No aplica"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Feriados propios del establecimiento</div>
+      {extra.length === 0 && !cargando && (
+        <div style={{ color: C.textSoft }} className="text-xs mb-2">Ninguno agregado todavía.</div>
+      )}
+      <div className="flex flex-col gap-1 mb-3">
+        {extra.map((f) => (
+          <div key={f.fecha} className="flex items-center gap-2 text-xs py-1" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+            <span style={{ ...mono, color: C.ink }}>{f.fecha}</span>
+            <span style={{ color: C.text }} className="flex-1">{f.nombre} <span style={{ color: C.textSoft }}>· {diaSemana(f.fecha)}</span></span>
+            <button onClick={() => guardar(extra.filter((x) => x.fecha !== f.fecha), quitados)} style={{ color: C.urgent }} className="text-[11px]">Quitar</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <input type="date" value={nuevo.fecha} onChange={(e) => setNuevo({ ...nuevo, fecha: e.target.value })} className="rounded-md p-2 text-sm" style={inp} />
+        <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Motivo (feriado regional, elecciones…)" className="rounded-md p-2 text-sm flex-1 min-w-[200px]" style={inp} />
+        <Btn
+          disabled={!nuevo.fecha || !nuevo.nombre.trim()}
+          onClick={() => {
+            if (extra.some((x) => x.fecha === nuevo.fecha)) { toast("Esa fecha ya está en la lista.", "info"); return; }
+            guardar([...extra, { fecha: nuevo.fecha, nombre: nuevo.nombre.trim() }].sort((a, b) => a.fecha.localeCompare(b.fecha)), quitados);
+            setNuevo({ fecha: "", nombre: "" });
+          }}>
+          <Plus size={14} /> Agregar
+        </Btn>
+        {guardado && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}
+      </div>
+
+      <p style={{ color: C.textSoft }} className="text-[11px] mt-3">
+        Los cambios afectan a los casos que se creen de aquí en adelante. Los plazos ya calculados
+        no se recalculan solos, para no mover fechas de casos en curso.
+      </p>
+    </Section>
   );
 }
 

@@ -4,15 +4,42 @@
    y utilidades de exportar / importar.
    ================================================================= */
 import { CASE_TYPES } from "./data.js";
+import { setDeFeriados } from "./feriados.js";
 
 /* ----------------------------- FECHAS ----------------------------- */
+
+// Feriados vigentes para el cálculo. Se fija desde la aplicación al iniciar
+// sesión, con los feriados propios que haya cargado el establecimiento.
+let FERIADOS = setDeFeriados(new Date().getFullYear());
+
+export function configurarFeriados({ extra = [], quitar = [] } = {}) {
+  FERIADOS = setDeFeriados(new Date().getFullYear(), extra, quitar);
+  return FERIADOS;
+}
+
+export function esFeriado(fecha) {
+  const d = new Date(fecha);
+  const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return FERIADOS.has(s);
+}
+
+// Día hábil = ni sábado, ni domingo, ni feriado.
+export function esHabil(fecha) {
+  const dia = new Date(fecha).getDay();
+  return dia !== 0 && dia !== 6 && !esFeriado(fecha);
+}
+
+// Suma días hábiles descontando fines de semana Y feriados legales.
+// El tope de 3.650 iteraciones es una salvaguarda: sin él, una lista de
+// feriados mal cargada podría dejar el bucle girando para siempre.
 export function addBusinessDays(startDate, days) {
   const d = new Date(startDate);
   let added = 0;
-  while (added < days) {
+  let vueltas = 0;
+  while (added < days && vueltas < 3650) {
     d.setDate(d.getDate() + 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) added++;
+    vueltas++;
+    if (esHabil(d)) added++;
   }
   return d;
 }
