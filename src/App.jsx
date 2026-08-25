@@ -2094,6 +2094,17 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       toast(e?.error || "No se pudo actualizar la medida. Se revirtió.");
     }
   }
+  // Portabilidad: entrega a la familia una copia completa del expediente.
+  const [exportando, setExportando] = useState(false);
+  async function exportarExpediente() {
+    setExportando(true);
+    try {
+      await api.exportStudent(s._dbId || s.id, s.name);
+      toast("Expediente descargado. Contiene datos sensibles: guárdalo en un lugar seguro.", "info");
+    } catch (e) {
+      toast(e?.error || "No se pudo generar el expediente.");
+    } finally { setExportando(false); }
+  }
   function registrarEvidencia(m) { setMedModal({ medida: m, campo: "evidencia" }); }
   function asignarResponsable(m) { setMedModal({ medida: m, campo: "responsable" }); }
   // Marcar "cumplida" sin evidencia no está permitido en el servidor: se pide aquí primero.
@@ -2128,7 +2139,12 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
             <div style={{ color: C.textSoft }} className="text-sm">{s.curso || "Sin curso"} · {LEVELS[s.nivel] || ""} · Expediente digital único</div>
           </div>
         </div>
-        <Toolbar onPrint={printView} />
+        <div className="flex items-center gap-2 flex-wrap print:hidden">
+          <Btn variant="ghost" onClick={exportarExpediente} disabled={exportando}>
+            <Download size={15} /> {exportando ? "Generando…" : "Descargar expediente"}
+          </Btn>
+          <Toolbar onPrint={printView} />
+        </div>
       </div>
 
       <ExpBlock icon={FolderOpen} title={`Casos del estudiante (${scases.length})`}>

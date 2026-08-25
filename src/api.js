@@ -93,6 +93,25 @@ export const api = {
   // Seguimiento de medidas (Ley 21.809): estado, responsable, plazo y evidencia.
   updateMedida: (mid, patch) => request(`/api/students/medidas/${mid}`, { method: "PATCH", body: patch, auth: true }),
   deleteMedida: (mid) => request(`/api/students/medidas/${mid}`, { method: "DELETE", auth: true }),
+
+  // Portabilidad (Ley 21.719): copia completa del expediente de UN estudiante.
+  exportStudent: async (id, nombre) => {
+    const res = await fetch(API_URL + `/api/students/${id}/expediente`, {
+      headers: { Authorization: "Bearer " + getToken() },
+    });
+    if (!res.ok) throw await res.json().catch(() => ({ error: "No se pudo generar el expediente." }));
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const slug = String(nombre || "estudiante").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+    a.href = url;
+    a.download = `expediente-${slug}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return data;
+  },
   deleteStudent: (id) => request(`/api/students/${id}`, { method: "DELETE", auth: true }),
   deleteCase: (id) => request(`/api/cases/${id}`, { method: "DELETE", auth: true }),
   deleteUser: (id) => request(`/api/users/${id}`, { method: "DELETE", auth: true }),
