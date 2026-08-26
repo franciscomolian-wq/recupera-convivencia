@@ -1448,6 +1448,8 @@ function initials(name) { return (name || "").split(" ").filter(Boolean).map((w)
 const PERM_MODULES = [
   { k: "casos", label: "Casos de convivencia" },
   { k: "expedientes", label: "Expedientes de estudiantes" },
+  // "accion" marca lo que no es una pantalla del menú sino una operación dentro de otra.
+  { k: "nomina", label: "Carga de nómina y correos de apoderados", accion: true },
   { k: "reconocimientos", label: "Convivencia positiva" },
   { k: "inspectoria", label: "Inspectoría General" },
   { k: "pie", label: "Integración PIE" },
@@ -1469,7 +1471,13 @@ const PERM_ROLES = ["coordinador", "director", "sostenedor", "superintendencia",
 const AUDIT_KEYS = new Set(["alertas", "casos", "expedientes", "inspectoria", "pie", "agenda", "apoderados", "documental", "reportes", "planpme", "gestion", "normativa", "redes", "reconocimientos"]);
 const LIMITED_KEYS = new Set(["casos", "expedientes", "pie", "agenda", "comunicacion", "apoderados", "documental", "planpme", "formatos", "normativa", "reconocimientos"]);
 
+// Espejo de lo que hace el servidor. La carga de nómina no sigue el scope: sobreescribe la
+// matrícula completa, así que por defecto la tienen los mismos de siempre —dirección y
+// coordinación— y cualquier otro perfil necesita que se la otorguen.
+const NOMINA_POR_DEFECTO = new Set(["superadmin", "coordinador", "director"]);
+
 function defaultLevel(roleKey, mk) {
+  if (mk === "nomina") return NOMINA_POR_DEFECTO.has(roleKey) ? "editar" : "";
   const sc = ROLES[roleKey]?.scope;
   if (sc === "admin") return "editar";
   if (sc === "audit") return AUDIT_KEYS.has(mk) ? "ver" : "";
@@ -1485,7 +1493,7 @@ function navKeysFromPerms(roleKey, permset) {
   const sc = ROLES[roleKey]?.scope;
   if (sc === "family") return ["dashboard", "casos", "expedientes", "normativa"];
   const keys = ["dashboard", "cursos"];
-  for (const m of PERM_MODULES) if (effLevel(roleKey, m.k, permset)) keys.push(m.k);
+  for (const m of PERM_MODULES) if (!m.accion && effLevel(roleKey, m.k, permset)) keys.push(m.k);
   if (effLevel(roleKey, "casos", permset) === "editar") keys.push("nuevo");
   if (sc === "admin" || sc === "audit") keys.push("auditoria");
   if (["coordinador", "director"].includes(roleKey)) keys.push("perfiles", "permisos");
@@ -1607,7 +1615,7 @@ function PortalApp(props) {
         {view === "permisos" && <PermissionsPage permset={props.permset} setPermset={props.setPermset} roleKey={session.role} cargos={props.cargos} setCargos={props.setCargos} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={pageRole} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
-        {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} onOpenStudent={openStudent} />}
+        {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} permset={props.permset} onOpenStudent={openStudent} />}
         {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
         {view === "reconocimientos" && <ReconocimientosPage students={students} setStudents={setStudents} role={pageRole} roleKey={session.role} onOpenStudent={openStudent} customCats={props.reconCategories} setCustomCats={props.setReconCategories} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
@@ -1892,8 +1900,11 @@ function ExpBlock({ icon: Icon, title, children }) {
 }
 
 /* =================== REPOSITORIO DE CURSOS =================== */
-function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers, roleKey, onOpenStudent }) {
+function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers, roleKey, permset, onOpenStudent }) {
+  // canManage sigue rigiendo lo que toca cuentas de usuario (asignar profesor jefe), que es
+  // otra cosa. Cargar la nómina y los correos lo gobierna la matriz de permisos.
   const canManage = ["coordinador", "director", "superadmin"].includes(roleKey);
+  const puedeCargarNomina = effLevel(roleKey, "nomina", permset) === "editar";
   const [nivel, setNivel] = useState("");
   const [grado, setGrado] = useState("");
   const [letra, setLetra] = useState("");
@@ -2050,7 +2061,7 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
     <div className="max-w-3xl">
       <PageHead title="Cursos" subtitle="Repositorio de estudiantes por curso. Elige nivel, grado y letra para ver a los alumnos del curso y su profesor jefe." right={<Toolbar onPrint={printView} />} />
 
-      {canManage && (
+      {puedeCargarNomina && (
         <div style={{ background: C.cardBg, border: `1px dashed ${C.cardBorder}` }} className="rounded-lg p-4 mb-5">
           <div className="flex items-center gap-3 flex-wrap">
             <UploadCloud size={18} color={C.primary} />
@@ -2077,7 +2088,7 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
         </div>
       )}
 
-      {canManage && students.length > 0 && (
+      {puedeCargarNomina && students.length > 0 && (
         <div style={{ background: sinCorreo.length ? "#FEF7E0" : C.cardBg, border: `1px dashed ${sinCorreo.length ? C.warn : C.cardBorder}` }} className="rounded-lg p-4 mb-5">
           <div className="flex items-center gap-3 flex-wrap">
             <Inbox size={18} color={sinCorreo.length ? C.warn : C.ok} />
