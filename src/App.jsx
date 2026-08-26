@@ -7,7 +7,7 @@ import {
   Send, BarChart3, Megaphone, Building, UserPlus, FileText, Trophy,
   Wallet, Coins, TrendingUp, CheckCircle, ClipboardList, Lock, CalendarClock,
   MessageSquare, Calendar, Gavel, Trash2, Puzzle, Share2,
-  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart, Save,
+  Inbox, Archive, PenLine, ExternalLink, Target, Menu, Camera, UploadCloud, Search, Award, Star, Medal, Heart, Save, History,
 } from "lucide-react";
 import {
   NORMATIVA_LIBRARY, LEVELS, INSTITUTIONS, CASE_TYPES, ROLES,
@@ -1890,6 +1890,84 @@ function StudentsPage({ students, cases, onOpen }) {
   );
 }
 
+/* Historial de modificaciones de un registro (Ley 21.809 / fiscalización).
+   Se carga al abrirlo, no al pintar el expediente: es información que se consulta de vez en
+   cuando y no tiene por qué costar una petición cada vez que alguien abre una ficha. */
+const ETIQUETA_CAMPO = {
+  name: "Nombre", rut: "RUN", curso: "Curso", nivel: "Nivel", grado: "Grado", letra: "Letra",
+  genero: "Género", apoderadoNombre: "Apoderado/a", apoderadoEmail: "Correo del apoderado/a",
+  nee: "NEE", neeTipo: "Tipo de NEE", tipo: "Tipo", descripcion: "Descripción", fecha: "Fecha",
+  estado: "Estado", responsable: "Responsable", plazo: "Plazo", evidencia: "Evidencia",
+  resumen: "Resumen", motivo: "Motivo", excusa: "Excusa", role: "Rol", email: "Correo",
+  relato: "Relato", testigos: "Testigos", closeSummary: "Resumen de cierre",
+};
+const ACCION_LEGIBLE = {
+  "student.edit": "Editó el expediente", "student.delete": "Eliminó el expediente",
+  "student.create": "Creó el expediente", "record.edit": "Editó un registro",
+  "record.delete": "Eliminó un registro", "medida.update": "Actualizó una medida",
+  "medida.create": "Registró una medida", "case.close": "Cerró el caso",
+  "user.edit": "Editó la cuenta",
+};
+
+function valorLegible(v) {
+  if (v === null || v === undefined || v === "") return "— vacío —";
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function HistorialCambios({ entity, id }) {
+  const [abierto, setAbierto] = useState(false);
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState("");
+
+  async function abrir() {
+    const nuevo = !abierto;
+    setAbierto(nuevo);
+    if (!nuevo || items) return;
+    try { setItems(await api.historialDe(entity, id)); }
+    catch (e) { setError(e?.error || "No se pudo cargar el historial."); setItems([]); }
+  }
+
+  return (
+    <ExpBlock icon={History} title="Historial de modificaciones">
+      <button onClick={abrir} className="text-sm print:hidden" style={{ color: C.primary }}>
+        {abierto ? "Ocultar historial" : "Ver quién modificó qué y cuándo"}
+      </button>
+      {abierto && (
+        <div className="mt-3">
+          {items === null && <div style={{ color: C.textSoft }} className="text-xs">Cargando…</div>}
+          {error && <div style={{ color: C.urgent }} className="text-xs">{error}</div>}
+          {items && items.length === 0 && !error && (
+            <div style={{ color: C.textSoft }} className="text-xs">Sin modificaciones registradas.</div>
+          )}
+          {items && items.map((a) => (
+            <div key={a.id} style={{ borderTop: `1px solid ${C.cardBorder}` }} className="py-2.5">
+              <div style={{ color: C.ink }} className="text-xs">
+                <b>{ACCION_LEGIBLE[a.action] || a.action}</b>
+                <span style={{ color: C.textSoft }}> · {a.userName || "—"} · {new Date(a.at).toLocaleString("es-CL")}</span>
+              </div>
+              {a.cambios ? (
+                <div className="mt-1.5 flex flex-col gap-1">
+                  {Object.entries(a.cambios).map(([campo, v]) => (
+                    <div key={campo} style={{ color: C.textSoft }} className="text-[11px] leading-relaxed">
+                      <span style={{ color: C.ink }}>{ETIQUETA_CAMPO[campo] || campo}:</span>{" "}
+                      <span style={{ textDecoration: "line-through" }}>{valorLegible(v.antes)}</span>{" → "}
+                      <span style={{ color: C.ink }}>{valorLegible(v.despues)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: C.textSoft }} className="text-[11px]">{a.detail || "Sin detalle de campos."}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </ExpBlock>
+  );
+}
+
 function ExpBlock({ icon: Icon, title, children }) {
   return (
     <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-4">
@@ -2456,6 +2534,11 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
           La Ley 21.809 exige poder demostrar el cumplimiento de las medidas: para marcar una como cumplida hay que registrar la evidencia.
         </p>
       </ExpBlock>
+
+      {/* El apoderado no lo ve: el servidor se lo niega, y mostrar un bloque que
+          siempre falla es peor que no mostrarlo. Su derecho de acceso a los datos de su
+          pupilo/a se ejerce con la exportacion del expediente. */}
+      {role.scope !== "family" && <HistorialCambios entity="student" id={s.id} />}
 
       {medModal && (
         <MedidaModal

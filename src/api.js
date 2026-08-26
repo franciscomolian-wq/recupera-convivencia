@@ -138,6 +138,8 @@ export const api = {
 
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
+  // Historial de modificaciones de un registro: qué cambió, cuándo, quién y de qué a qué.
+  historialDe: (entity, id) => request(`/api/audit/historial/${entity}/${encodeURIComponent(id)}`, { auth: true }),
 
   // --- Establecimientos (panel Súper Admin) ---
   listEstablishments: () => request("/api/establishments", { auth: true }),
