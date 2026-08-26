@@ -4952,7 +4952,7 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
                   <div key={i} className="flex items-center gap-2 px-3 py-2" style={{ borderTop: i ? `1px solid ${C.cardBorder}` : "none", background: bad ? "#FCE8E6" : C.cardBg }}>
                     <span className="flex-1 truncate" style={{ color: C.ink }}>{r.name || <i style={{ color: C.urgent }}>sin nombre</i>}</span>
                     <span style={{ color: C.textSoft }} className="w-28 shrink-0">{r.rut || "—"}</span>
-                    <span style={{ color: r.role ? C.textSoft : C.urgent }} className="w-32 shrink-0">{r.role ? (ROLES[r.role]?.label || r.role) : "rol inválido"}</span>
+                    <span style={{ color: r.role ? C.textSoft : C.urgent }} className="w-32 shrink-0">{r.role ? etiquetaRol(r.role, cargos) : "rol inválido"}</span>
                     <span style={{ color: C.textSoft }} className="w-40 shrink-0 truncate">{r.email || "—"}</span>
                   </div>
                 );
@@ -4984,7 +4984,9 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
       {loading ? <div style={{ color: C.textSoft }} className="text-sm">Cargando…</div> : (
         <div className="grid sm:grid-cols-2 gap-3">
           {users.filter((u) => u.role !== "superadmin").map((u) => {
-            const r = ROLES[u.role] || { label: u.role };
+            // etiquetaRol y no ROLES[...]: un cargo propio del establecimiento no está en
+            // ROLES, y se mostraba como "otro:encargado-sige" en vez de "Encargado SIGE".
+            const r = ROLES[u.role] || { label: etiquetaRol(u.role, cargos) };
             return (
               <div key={u.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center gap-3">
                 <div style={{ background: u.activated ? C.ok : C.warn }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={17} color="#fff" /></div>
