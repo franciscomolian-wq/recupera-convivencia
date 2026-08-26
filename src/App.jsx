@@ -17,7 +17,7 @@ import {
   ANOTACION_TYPES, EVENT_TYPES, INITIAL_MESSAGES, INITIAL_EVENTS,
   GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
   DOC_CATEGORIES, INITIAL_DOCUMENTS, PME_DIMENSIONS, INITIAL_ACCIONES,
-  RECON_CATEGORIES, RECON_BADGES,
+  RECON_CATEGORIES, RECON_BADGES, infoRol, etiquetaRol, registrarCargos, cargosRegistrados,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
@@ -517,6 +517,7 @@ function App() {
   const [acciones, setAcciones] = useState([]);
   const [protocols, setProtocols] = useState([]);
   const [permset, setPermset] = useState(null);
+  const [cargos, setCargos] = useState([]); // cargos propios del establecimiento ("Otros")
   const [courseTeachers, setCourseTeachers] = useState(null);
   const [reconCategories, setReconCategories] = useState([]);
 
@@ -535,7 +536,16 @@ function App() {
     if (!session) return;
     let vivo = true;
     setDataLoading(true);
-    Promise.all([api.listCases(), api.listStudents(), api.listOrgRecords(), api.listEstablishments()])
+    // Cada carga se resuelve por separado: ahora que la matriz de permisos también gobierna
+    // la lectura, un perfil sin acceso a casos recibe 403 ahí, y con Promise.all eso dejaba
+    // la sesión completa vacía —incluidos los módulos a los que sí tiene acceso—.
+    const vacio = (v) => () => v;
+    Promise.all([
+      api.listCases().catch(vacio([])),
+      api.listStudents().catch(vacio([])),
+      api.listOrgRecords().catch(vacio([])),
+      api.listEstablishments().catch(vacio([])),
+    ])
       .then(([cs, ss, org, ests]) => {
         if (!vivo) return;
         const mappedCases = cs.map(apiCaseToUI);
@@ -543,6 +553,11 @@ function App() {
         setStudents(ss.map(apiStudentToUI));
         if (Array.isArray(ests) && ests.length) setEstablishments(ests.map((e) => apiEstablishmentToUI(e, mappedCases)));
         api.listInstitutions().then((ins) => { if (Array.isArray(ins) && ins.length) setInstitutions(ins); }).catch(() => {});
+        // Los cargos propios se cargan siempre: sin ellos, quien tenga uno vería su rol
+        // escrito como "otro:dupla-psicosocial" en toda la interfaz.
+        api.listRoles()
+          .then((r) => { if (!vivo) return; const l = r?.propios || []; registrarCargos(l); setCargos(l); })
+          .catch(() => {});
         const by = (k) => org.filter((r) => r.kind === k).map((r) => ({ id: r.id, ...(r.data || {}) }));
         setMessages(by("message"));
         setEvents(by("event"));
@@ -566,7 +581,7 @@ function App() {
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCourseTeachers(null); setReconCategories([]); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCargos([]); registrarCargos([]); setCourseTeachers(null); setReconCategories([]); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -585,10 +600,13 @@ function App() {
     notifications, setNotifications, emailTemplates, setEmailTemplates, docs, setDocs,
     students, setStudents, messages, setMessages, events, setEvents, gestiones, setGestiones,
     documents, setDocuments, acciones, setAcciones, protocols, setProtocols, permset, setPermset,
+    cargos, setCargos,
     courseTeachers, setCourseTeachers, reconCategories, setReconCategories,
   };
 
-  const role = ROLES[session.role];
+  // infoRol y no ROLES[...]: una cuenta con cargo propio no está en ROLES, y leerle .scope
+  // a undefined tumbaba la aplicación entera justo al iniciar sesión.
+  const role = infoRol(session.role, cargos);
   if (role.scope === "superadmin") return <AdminApp {...shared} />;
   return <PortalApp {...shared} />;
 }
@@ -917,7 +935,7 @@ function Activate({ token, onDone, onCancel }) {
           <form onSubmit={submit} className="flex flex-col gap-3">
             <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 text-sm">
               <div style={{ color: C.ink }} className="font-medium">{info.name}</div>
-              <div style={{ color: C.textSoft }} className="text-xs">RUT {info.rut} · {ROLES[info.role]?.label || info.role}</div>
+              <div style={{ color: C.textSoft }} className="text-xs">RUT {info.rut} · {etiquetaRol(info.role)}</div>
             </div>
             <p style={{ color: C.textSoft }} className="text-xs">Crea tu contraseña para acceder. Debe tener al menos 8 caracteres.</p>
             <label className="block">
@@ -1524,7 +1542,7 @@ const DOC_CAT_COLOR = {
 
 function PortalApp(props) {
   const { session, setSession, cases, setCases, notifications, setNotifications } = props;
-  const role = ROLES[session.role];
+  const role = infoRol(session.role, props.cargos);
   const navKeys = navKeysFromPerms(session.role, props.permset);
   const { students, setStudents } = props;
   const [view, setView] = useState("dashboard");
@@ -1586,7 +1604,7 @@ function PortalApp(props) {
         {view === "dashboard" && <Dashboard role={pageRole} cases={visibleCases} onOpenCase={openCase} onGo={setView} />}
         {view === "nuevo" && <CaseWizard students={students} protocols={props.protocols} onCreate={persistCase} onCancel={() => setView("dashboard")} />}
         {view === "protocolos" && <ProtocolsPage protocols={props.protocols} setProtocols={props.setProtocols} role={pageRole} />}
-        {view === "permisos" && <PermissionsPage permset={props.permset} setPermset={props.setPermset} roleKey={session.role} />}
+        {view === "permisos" && <PermissionsPage permset={props.permset} setPermset={props.setPermset} roleKey={session.role} cargos={props.cargos} setCargos={props.setCargos} />}
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={pageRole} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} onOpenStudent={openStudent} />}
@@ -1607,7 +1625,7 @@ function PortalApp(props) {
         {view === "normativa" && <NormativaPage docs={props.docs} setDocs={props.setDocs} role={pageRole} />}
         {view === "redes" && <RedesPage institutions={props.institutions} />}
         {view === "auditoria" && <AuditPanel cases={cases} />}
-        {view === "perfiles" && <PerfilesPage roleKey={session.role} />}
+        {view === "perfiles" && <PerfilesPage roleKey={session.role} cargos={props.cargos} setCargos={props.setCargos} />}
         {view === "configuracion" && <ConfigPage {...props} />}
       </main>
       </div>
@@ -2699,7 +2717,10 @@ function MessagesPage({ messages, setMessages, session, role }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [sent, setSent] = useState(false);
-  const recipients = Object.entries(ROLES).filter(([k]) => k !== "superadmin" && k !== "apoderado");
+  const recipients = [
+    ...Object.entries(ROLES).filter(([k]) => k !== "superadmin" && k !== "apoderado"),
+    ...cargosRegistrados().map((c) => [c.key, { label: c.label }]),
+  ];
   const inbox = messages.filter((m) => m.to === "todos" || m.to === session.role || m.from === session.name);
   const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
 
@@ -2732,7 +2753,7 @@ function MessagesPage({ messages, setMessages, session, role }) {
         {inbox.length === 0 && <div style={{ color: C.textSoft }} className="text-sm">No hay mensajes.</div>}
         {inbox.map((m) => {
           const enviado = m.from === session.name;
-          const dest = m.to === "todos" ? "Todos" : ROLES[m.to]?.label || m.to;
+          const dest = m.to === "todos" ? "Todos" : etiquetaRol(m.to);
           return (
             <div key={m.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -4391,9 +4412,65 @@ function RedesPage({ institutions }) {
   );
 }
 
-function PermissionsPage({ permset, setPermset, roleKey }) {
+function PermissionsPage({ permset, setPermset, roleKey, cargos = [], setCargos }) {
   const canEdit = ["coordinador", "director", "superadmin"].includes(roleKey);
   const [selRole, setSelRole] = useState(PERM_ROLES[0]);
+  // Los cargos propios se administran aquí porque es donde se les dan los permisos, que es
+  // lo único que hace útil a un cargo recién creado.
+  const [nuevoCargo, setNuevoCargo] = useState("");
+  const [editandoCargo, setEditandoCargo] = useState(null); // clave del cargo en edición
+  const [cargoMsg, setCargoMsg] = useState("");
+  const [cargoBusy, setCargoBusy] = useState(false);
+
+  async function refrescarCargos() {
+    const lista = await api.listRoles();
+    const propios = lista?.propios || [];
+    registrarCargos(propios);
+    setCargos?.(propios);
+    return propios;
+  }
+
+  async function guardarCargo() {
+    const label = nuevoCargo.trim();
+    if (!label || cargoBusy) return;
+    setCargoBusy(true); setCargoMsg("");
+    try {
+      if (editandoCargo) {
+        await api.renameRole(editandoCargo, label);
+        await refrescarCargos();
+        setEditandoCargo(null); setNuevoCargo("");
+        setCargoMsg("Nombre actualizado.");
+      } else {
+        const r = await api.createRole(label);
+        await refrescarCargos();
+        setNuevoCargo("");
+        setSelRole(r.cargo.key); // queda seleccionado: lo siguiente es darle permisos
+        setCargoMsg(r.yaExistia
+          ? "Ese cargo ya existía; queda seleccionado."
+          : "Cargo creado. Ahora dale los permisos que corresponda: parte sin acceso a nada.");
+      }
+    } catch (e) { setCargoMsg(e?.error || "No se pudo guardar el cargo."); }
+    finally { setCargoBusy(false); }
+  }
+
+  function editarCargo(c) {
+    setEditandoCargo(c.key); setNuevoCargo(c.label); setCargoMsg("");
+  }
+  function cancelarEdicion() {
+    setEditandoCargo(null); setNuevoCargo(""); setCargoMsg("");
+  }
+
+  async function eliminarCargo(key) {
+    const c = cargos.find((x) => x.key === key);
+    if (!c) return;
+    setCargoMsg("");
+    try {
+      await api.deleteRole(key);
+      await refrescarCargos();
+      if (selRole === key) setSelRole(PERM_ROLES[0]);
+      if (editandoCargo === key) cancelarEdicion();
+    } catch (e) { setCargoMsg(e?.error || "No se pudo eliminar el cargo."); }
+  }
   const [levels, setLevels] = useState({});
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4440,10 +4517,55 @@ function PermissionsPage({ permset, setPermset, roleKey }) {
         Elige un rol y ajusta cada módulo: <b>Sin acceso</b> (no aparece en su menú), <b>Ver</b> (solo lectura) o <b>Editar</b> (puede crear y modificar). La gestión de usuarios, permisos y configuración queda reservada a Coordinación y Dirección.
       </div>
 
+      <div style={{ background: C.cardBg, border: `1px dashed ${C.cardBorder}` }} className="rounded-lg p-4 mb-5">
+        <div style={{ color: C.ink }} className="text-sm font-medium mb-1">Cargos de tu establecimiento</div>
+        <div style={{ color: C.textSoft }} className="text-xs mb-3">
+          Si un cargo de tu colegio no está en la lista del sistema —encargado de pastoral, dupla
+          psicosocial, capellán—, créalo aquí y luego dale los permisos que corresponda.
+          <b> Un cargo nuevo parte sin acceso a nada</b> hasta que se los otorgues.
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={nuevoCargo}
+            onChange={(e) => setNuevoCargo(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") guardarCargo(); if (e.key === "Escape" && editandoCargo) cancelarEdicion(); }}
+            placeholder={editandoCargo ? "Nuevo nombre del cargo" : "Nombre del cargo (ej: Encargado de Pastoral)"}
+            maxLength={60}
+            className="rounded-md p-2.5 text-sm flex-1 min-w-[240px]"
+            style={inp}
+          />
+          <button onClick={guardarCargo} disabled={cargoBusy || !nuevoCargo.trim()} style={{ background: C.primary, color: "#fff", opacity: cargoBusy || !nuevoCargo.trim() ? 0.5 : 1 }} className="rounded-md px-3.5 py-2.5 text-sm font-medium">
+            {cargoBusy ? "Guardando…" : editandoCargo ? "Guardar nombre" : "Agregar cargo"}
+          </button>
+          {editandoCargo && (
+            <button onClick={cancelarEdicion} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.textSoft }} className="rounded-md px-3 py-2.5 text-sm">Cancelar</button>
+          )}
+        </div>
+        {cargos.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {cargos.map((c) => (
+              <span key={c.key} style={{ background: editandoCargo === c.key ? C.primary + "1A" : C.appBg, border: `1px solid ${C.cardBorder}`, color: C.ink }} className="inline-flex items-center gap-2 text-xs rounded-full pl-3 pr-1.5 py-1">
+                {c.label}
+                <button onClick={() => editarCargo(c)} title="Renombrar" style={{ color: C.textSoft }} className="p-0.5"><PenLine size={12} /></button>
+                <button onClick={() => eliminarCargo(c.key)} title="Eliminar" style={{ color: C.urgent }} className="p-0.5"><X size={12} /></button>
+              </span>
+            ))}
+          </div>
+        )}
+        {cargoMsg && <div style={{ color: /No se pudo|no existe|No se puede/.test(cargoMsg) ? C.urgent : C.primary }} className="text-xs mt-2.5">{cargoMsg}</div>}
+      </div>
+
       <div className="mb-4">
         <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Perfil / rol</label>
         <select value={selRole} onChange={(e) => setSelRole(e.target.value)} className="mt-1.5 w-full max-w-sm rounded-md p-2.5 text-sm" style={inp}>
-          {PERM_ROLES.map((rk) => <option key={rk} value={rk}>{ROLES[rk]?.label || rk}</option>)}
+          <optgroup label="Roles del sistema">
+            {PERM_ROLES.map((rk) => <option key={rk} value={rk}>{ROLES[rk]?.label || rk}</option>)}
+          </optgroup>
+          {cargos.length > 0 && (
+            <optgroup label="Cargos de tu establecimiento">
+              {cargos.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </optgroup>
+          )}
         </select>
         <div className="mt-1.5">
           {esPropio
@@ -4512,7 +4634,7 @@ function AuditPanel({ cases }) {
               <span style={{ ...mono, color: C.textSoft }} className="shrink-0 w-32">{new Date(e.at).toLocaleString("es-CL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
               <span style={{ color: C.ink }} className="font-medium shrink-0 w-44">{AUDIT_LABELS[e.action] || e.action}</span>
               <span style={{ color: C.textSoft }} className="flex-1 truncate">{e.userName || "—"}{e.detail ? ` · ${e.detail}` : ""}</span>
-              {e.userRole && <span style={{ background: C.appBg, color: C.textSoft }} className="text-[10px] px-2 py-0.5 rounded-full shrink-0">{ROLES[e.userRole]?.label || e.userRole}</span>}
+              {e.userRole && <span style={{ background: C.appBg, color: C.textSoft }} className="text-[10px] px-2 py-0.5 rounded-full shrink-0">{etiquetaRol(e.userRole)}</span>}
             </div>
           ))}
         </div>
@@ -4521,7 +4643,9 @@ function AuditPanel({ cases }) {
   );
 }
 
-function PerfilesPage({ roleKey }) {
+const OTRO = "__otro__"; // opción "Otro (escribir el cargo)" del selector de rol
+
+function PerfilesPage({ roleKey, cargos = [], setCargos }) {
   const canManage = ["superadmin", "coordinador", "director"].includes(roleKey);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4530,6 +4654,9 @@ function PerfilesPage({ roleKey }) {
   const [error, setError] = useState("");
   const [invite, setInvite] = useState(null); // { url, name }
   const [copied, setCopied] = useState(false);
+  // Cargo escrito a mano al elegir "Otro": se crea en el establecimiento y recién entonces
+  // se invita, porque el servidor solo acepta cargos que ya existen.
+  const [cargoLibre, setCargoLibre] = useState("");
   // El súper admin invita a cualquier colegio, así que tiene que poder elegirlo.
   // Sin esto la cuenta se creaba sin establecimiento y la persona no veía nada.
   const esSuper = roleKey === "superadmin";
@@ -4548,9 +4675,19 @@ function PerfilesPage({ roleKey }) {
 
   async function submit() {
     if (!form.name.trim() || !form.rut.trim() || saving) return;
+    if (form.role === OTRO && !cargoLibre.trim()) { setError("Escribe el nombre del cargo."); return; }
     setError(""); setSaving(true); setInvite(null); setCopied(false);
     try {
-      const res = await api.inviteUser(form);
+      let datos = form;
+      if (form.role === OTRO) {
+        const r = await api.createRole(cargoLibre.trim(), esSuper ? form.establishmentId : undefined);
+        const lista = await api.listRoles(esSuper ? form.establishmentId : undefined);
+        const propios = lista?.propios || [];
+        registrarCargos(propios); setCargos?.(propios);
+        datos = { ...form, role: r.cargo.key };
+        setCargoLibre("");
+      }
+      const res = await api.inviteUser(datos);
       setInvite({ url: res.inviteUrl, name: form.name, email: form.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured });
       setForm((f) => ({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: f.establishmentId }));
       reload();
@@ -4627,9 +4764,27 @@ function PerfilesPage({ roleKey }) {
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nombre completo" className="rounded-md p-2.5 text-sm" style={inp} />
           <input value={form.rut} onChange={(e) => setForm({ ...form, rut: e.target.value })} placeholder="RUT (12.345.678-9)" className="rounded-md p-2.5 text-sm" style={inp} />
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
-            {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            <optgroup label="Roles del sistema">
+              {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </optgroup>
+            {cargos.length > 0 && (
+              <optgroup label="Cargos de tu establecimiento">
+                {cargos.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </optgroup>
+            )}
+            <option value={OTRO}>Otro (escribir el cargo)…</option>
           </select>
           <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Correo (opcional)" className="rounded-md p-2.5 text-sm" style={inp} />
+          {form.role === OTRO && (
+            <input
+              value={cargoLibre}
+              onChange={(e) => setCargoLibre(e.target.value)}
+              placeholder="Nombre del cargo (ej: Encargado de Pastoral)"
+              maxLength={60}
+              className="rounded-md p-2.5 text-sm sm:col-span-2"
+              style={{ ...inp, borderColor: C.primary }}
+            />
+          )}
           {esSuper && (
             <select value={form.establishmentId} onChange={(e) => setForm({ ...form, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm sm:col-span-2" style={inp}>
               <option value="">— Elige el establecimiento —</option>
@@ -4640,6 +4795,12 @@ function PerfilesPage({ roleKey }) {
         {esSuper && !form.establishmentId && (
           <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
             Estás invitando desde administración central: elige el colegio al que pertenece la persona, o la cuenta quedará sin acceso a nada.
+          </div>
+        )}
+        {form.role === OTRO && (
+          <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
+            El cargo se agrega al establecimiento y <b>parte sin acceso a nada</b>. Después de invitar,
+            entra a «Permisos por rol» y dale los módulos que le correspondan.
           </div>
         )}
         {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 mt-3 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
@@ -4761,7 +4922,13 @@ function PerfilesPage({ roleKey }) {
               <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Nombre completo" className="rounded-md p-2.5 text-sm" style={inp} />
               <input value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} placeholder="Correo" className="rounded-md p-2.5 text-sm" style={inp} />
               <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
+                {/* Si la cuenta tiene un cargo que ya no está en la lista, se muestra igual:
+                    de lo contrario el selector le cambiaría el rol solo al abrir el diálogo. */}
+                {!ROLES[editing.role] && !cargos.some((c) => c.key === editing.role) && (
+                  <option value={editing.role}>{etiquetaRol(editing.role, cargos)}</option>
+                )}
                 {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                {cargos.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
               {esSuper && (
                 <>

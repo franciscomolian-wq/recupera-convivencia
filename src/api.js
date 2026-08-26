@@ -84,6 +84,12 @@ export const api = {
   getStudent: (id) => request(`/api/students/${id}`, { auth: true }),
   createStudent: (s) => request("/api/students", { method: "POST", body: s, auth: true }),
   bulkStudents: (students) => request("/api/students/bulk", { method: "POST", body: { students }, auth: true }),
+
+  // Cargos propios del establecimiento ("Otros"): los que no están en la lista del sistema.
+  listRoles: (establishmentId) => request("/api/roles" + (establishmentId ? "?establishmentId=" + encodeURIComponent(establishmentId) : ""), { auth: true }),
+  createRole: (label, establishmentId) => request("/api/roles", { method: "POST", body: { label, establishmentId }, auth: true }),
+  renameRole: (key, label) => request("/api/roles/" + encodeURIComponent(key), { method: "PATCH", body: { label }, auth: true }),
+  deleteRole: (key) => request("/api/roles/" + encodeURIComponent(key), { method: "DELETE", auth: true }),
   // Carga de los datos del apoderado, por separado: la nómina de SIGE no los trae.
   bulkApoderados: (apoderados) => request("/api/students/bulk-apoderados", { method: "POST", body: { apoderados }, auth: true }),
   updateStudent: (id, s) => request(`/api/students/${id}`, { method: "PATCH", body: s, auth: true }),

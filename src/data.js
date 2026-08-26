@@ -346,6 +346,46 @@ export const ROLES = {
 };
 
 /* ---------------------------------------------------------------
+   CARGOS PROPIOS DEL ESTABLECIMIENTO ("Otros")
+   ----------------------------------------------------------------
+   Los colegios tienen puestos que no están en la lista de arriba: encargado de pastoral,
+   dupla psicosocial, capellán, monitor de convivencia. Se crean en «Permisos por rol» y
+   llegan desde la API con la clave "otro:…".
+
+   Un cargo propio NO tiene scope, y es deliberado: no hereda permisos de ningún rol del
+   sistema. Todo lo que ve sale de la matriz de permisos, otorgado a mano por el colegio.
+
+   Las etiquetas se guardan en un registro de módulo porque hacen falta en pantallas muy
+   repartidas (auditoría, mensajería, ficha de usuario) y arrastrar la lista como prop por
+   toda la aplicación es peor que este registro: son solo nombres de cargos, no estado.
+   ---------------------------------------------------------------- */
+let CARGOS_PROPIOS = [];
+export function registrarCargos(lista) {
+  CARGOS_PROPIOS = Array.isArray(lista) ? lista : [];
+}
+export function cargosRegistrados() {
+  return CARGOS_PROPIOS;
+}
+
+// Último recurso para pantallas sin sesión —la de activación de la invitación— donde no se
+// puede consultar la lista: "otro:dupla-psicosocial" se lee al menos como "Dupla psicosocial".
+function legibleDesdeClave(key) {
+  const s = String(key || "");
+  if (!s.startsWith("otro:")) return s;
+  const t = s.slice(5).replace(/-/g, " ").trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : s;
+}
+
+export function infoRol(key, cargos) {
+  if (ROLES[key]) return ROLES[key];
+  const c = (cargos || CARGOS_PROPIOS).find((x) => x.key === key);
+  return { label: c ? c.label : legibleDesdeClave(key), scope: "" };
+}
+export function etiquetaRol(key, cargos) {
+  return infoRol(key, cargos).label;
+}
+
+/* ---------------------------------------------------------------
    ESTABLECIMIENTOS (para el súper administrador)
    ---------------------------------------------------------------- */
 export const ESTABLISHMENTS = [
