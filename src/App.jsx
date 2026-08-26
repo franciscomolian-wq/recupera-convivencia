@@ -1933,6 +1933,75 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
     setBusy(false);
   }
 
+  // ---- Correos de apoderados ----
+  // Sin este dato queda inerte todo lo que mira hacia las familias: el aviso de
+  // tratamiento y el consentimiento (Ley 21.719), la citación por enlace, los
+  // reconocimientos, y el rol de apoderado. La nómina de SIGE no lo trae, así que se
+  // carga aparte. La plantilla sale ya con los estudiantes a los que les falta.
+  const [apoMsg, setApoMsg] = useState("");
+  const [apoBusy, setApoBusy] = useState(false);
+  const sinCorreo = students.filter((s) => !s.apoderadoEmail);
+
+  // El RUT se escribe con puntos y guion: así lo reconoce quien rellena la planilla, y
+  // además Excel lo trata como texto en vez de convertirlo a notación científica.
+  function rutConFormato(r) {
+    const s = String(r || "").replace(/[^0-9kK]/g, "").toUpperCase();
+    if (s.length < 2) return String(r || "");
+    return s.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "-" + s.slice(-1);
+  }
+
+  function descargarPlantillaApoderados() {
+    const filas = [["rut", "estudiante", "curso", "apoderado", "correo"]];
+    for (const s of sinCorreo) {
+      filas.push([rutConFormato(s.rut), s.name || "", s.curso || "", s.apoderadoNombre || "", ""]);
+    }
+    const csv = filas.map((f) => f.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    // BOM para que Excel abra los acentos correctamente.
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "correos-apoderados.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function onApoderadosFile(file) {
+    setApoBusy(true); setApoMsg("");
+    try {
+      const texto = await readFileText(file);
+      const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+      if (!lineas.length) { setApoMsg("El archivo está vacío."); setApoBusy(false); return; }
+      const sep = (lineas[0].match(/;/g) || []).length >= (lineas[0].match(/,/g) || []).length ? ";" : ",";
+      const corta = (l) => l.split(sep).map((c) => c.replace(/^\uFEFF/, "").replace(/^"|"$/g, "").replace(/""/g, '"').trim());
+      const cab = corta(lineas[0]).map((c) => c.toLowerCase());
+      const iRut = cab.findIndex((c) => c.includes("rut") || c.includes("run"));
+      const iApo = cab.findIndex((c) => c.includes("apoderado"));
+      const iCorreo = cab.findIndex((c) => c.includes("correo") || c.includes("mail"));
+      if (iRut < 0 || iCorreo < 0) {
+        setApoMsg("El archivo debe tener al menos una columna de RUT y una de correo. Usa la plantilla.");
+        setApoBusy(false); return;
+      }
+      const filas = lineas.slice(1).map(corta).map((c) => ({
+        rut: c[iRut] || "",
+        apoderadoNombre: iApo >= 0 ? (c[iApo] || "") : "",
+        apoderadoEmail: c[iCorreo] || "",
+      })).filter((r) => r.rut && (r.apoderadoEmail || r.apoderadoNombre));
+      if (!filas.length) { setApoMsg("No se encontró ninguna fila con RUT y correo."); setApoBusy(false); return; }
+
+      const res = await api.bulkApoderados(filas);
+      const ss = await api.listStudents();
+      setStudents(ss.map(apiStudentToUI));
+      let m = `${res.actualizados} estudiante(s) actualizado(s).`;
+      if (res.totalSinCalce) m += ` ${res.totalSinCalce} RUT sin calce en la nómina.`;
+      if (res.totalCorreoInvalido) m += ` ${res.totalCorreoInvalido} correo(s) con formato inválido.`;
+      m += ` Quedan ${res.quedanSinCorreo} sin correo.`;
+      setApoMsg(m);
+    } catch (e) {
+      setApoMsg("No se pudo cargar: " + (e?.error || e?.message || "revisa el archivo."));
+    }
+    setApoBusy(false);
+  }
+
   const parts = students.map((s) => ({ s, ...courseParts(s) }));
   const uniq = (arr) => [...new Set(arr.filter(Boolean))];
   const niveles = uniq(parts.map((p) => p.nivel));
@@ -1987,6 +2056,39 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {canManage && students.length > 0 && (
+        <div style={{ background: sinCorreo.length ? "#FEF7E0" : C.cardBg, border: `1px dashed ${sinCorreo.length ? C.warn : C.cardBorder}` }} className="rounded-lg p-4 mb-5">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Inbox size={18} color={sinCorreo.length ? C.warn : C.ok} />
+            <div className="flex-1 min-w-[220px]">
+              <div style={{ color: C.ink }} className="text-sm font-medium">Correos de apoderados</div>
+              <div style={{ color: C.textSoft }} className="text-xs">
+                {sinCorreo.length === 0
+                  ? "Todos los estudiantes tienen correo de apoderado registrado."
+                  : `${sinCorreo.length} de ${students.length} estudiantes no tienen correo de apoderado. Sin ese dato no se les puede enviar el aviso de tratamiento de datos, las citaciones por enlace ni los reconocimientos, y sus familias no pueden tener cuenta.`}
+              </div>
+            </div>
+            {sinCorreo.length > 0 && (
+              <button onClick={descargarPlantillaApoderados} className="mbtn-outline text-sm px-3.5 py-2 rounded-full inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
+                <Download size={14} /> Descargar plantilla
+              </button>
+            )}
+            <label className="cursor-pointer">
+              <span style={{ background: C.primary, color: "#fff" }} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium">
+                <UploadCloud size={15} /> {apoBusy ? "Cargando…" : "Subir correos"}
+              </span>
+              <input type="file" accept=".csv,.txt" className="hidden" disabled={apoBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) onApoderadosFile(f); e.target.value = ""; }} />
+            </label>
+          </div>
+          {sinCorreo.length > 0 && (
+            <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
+              La plantilla se descarga con los estudiantes a los que les falta el correo: basta con rellenar la última columna y volver a subirla. El calce se hace por RUT y no se toca ningún otro dato.
+            </div>
+          )}
+          {apoMsg && <div style={{ color: /No se pudo|debe tener|vacío|No se encontró/.test(apoMsg) ? C.urgent : C.primary }} className="text-xs mt-3">{apoMsg}</div>}
         </div>
       )}
 
