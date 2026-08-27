@@ -4104,6 +4104,7 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
   const [derivOpen, setDerivOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [evType, setEvType] = useState({});
+  const [subiendoEv, setSubiendoEv] = useState(null); // paso cuyo archivo se está subiendo
   const [notice, setNotice] = useState(null); // {ok, text}
   const emails = c.emails || [];
 
@@ -4140,11 +4141,28 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
       log: [...x.log, { at: new Date(), who: role.label, text: `Paso completado: ${x.steps[stepId].title}` }] }; });
     if (c._dbId) api.stepDone(c._dbId, stepId).catch((e) => { console.error("stepDone", e); toast("No se pudo registrar el paso. Se revirtió."); if (prev) revertTo(prev); });
   }
-  function addEvidence(stepId, name, type) {
-    let prev = null;
-    update((x) => { prev = x; return { ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { name, type }] } : s)),
-      log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${name}` }] }; });
-    if (c._dbId) api.addEvidence(c._dbId, { type, name, stepOrder: stepId }).catch((e) => { console.error("addEvidence", e); toast("No se pudo adjuntar la evidencia. Se revirtió."); if (prev) revertTo(prev); });
+  // Sube el archivo de verdad. Antes solo se guardaba el NOMBRE y la ficha pintaba un clip
+  // como si hubiera adjunto: el expediente mostraba un procedimiento cumplido y ningún
+  // documento detrás. Por eso aquí NO hay actualización optimista — solo se muestra la
+  // evidencia cuando el servidor confirma que el archivo quedó guardado.
+  async function addEvidence(stepId, file, type) {
+    if (!c._dbId) { toast("Este caso no está guardado en la base de datos; el archivo no se puede adjuntar."); return; }
+    setSubiendoEv(stepId);
+    try {
+      const ev = await api.subirEvidencia(c._dbId, file, type, stepId);
+      update((x) => ({ ...x, steps: x.steps.map((s) => (s.id === stepId ? { ...s, evidence: [...s.evidence, { id: ev.id, name: ev.name, type: ev.type, size: ev.size, tieneArchivo: true }] } : s)),
+        log: [...x.log, { at: new Date(), who: role.label, text: `Evidencia (${type}): ${ev.name}` }] }));
+    } catch (e) {
+      console.error("subirEvidencia", e);
+      toast(e?.error || "No se pudo adjuntar la evidencia. El archivo NO quedó guardado.");
+    } finally {
+      setSubiendoEv(null);
+    }
+  }
+
+  async function bajarEvidencia(ev) {
+    try { await api.descargarEvidencia(c._dbId, ev.id, ev.name); }
+    catch (e) { toast(e?.error || "No se pudo descargar el archivo."); }
   }
   // Notificar por correo (envío real + registro persistente).
   async function doNotify(mail) {
@@ -4291,7 +4309,26 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
                 </div>
                 {s.evidence.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {s.evidence.map((ev, k) => <span key={k} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.textSoft }} className="text-[11px] px-2 py-1 rounded flex items-center gap-1"><Paperclip size={10} /> <b style={{ color: C.ink, fontWeight: 600 }}>{ev.type}</b> · {ev.name}</span>)}
+                    {s.evidence.map((ev, k) => {
+                      const conArchivo = !!(ev.id && (ev.tieneArchivo || ev.storageId));
+                      return conArchivo ? (
+                        <button key={k} onClick={() => bajarEvidencia(ev)} title="Descargar el archivo"
+                          style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}
+                          className="text-[11px] px-2 py-1 rounded flex items-center gap-1 print:hidden">
+                          <Paperclip size={10} /> <b style={{ color: C.ink, fontWeight: 600 }}>{ev.type}</b> · {ev.name}
+                          <Download size={10} />
+                        </button>
+                      ) : (
+                        /* Sin archivo: se dice, no se finge. Son las evidencias anteriores al
+                           almacén, de las que solo quedó registrado el nombre. */
+                        <span key={k} title="Solo se registró el nombre del archivo; no hay documento guardado"
+                          style={{ background: C.cardBg, border: `1px dashed ${C.warn}`, color: C.textSoft }}
+                          className="text-[11px] px-2 py-1 rounded flex items-center gap-1">
+                          <b style={{ color: C.ink, fontWeight: 600 }}>{ev.type}</b> · {ev.name}
+                          <span style={{ color: C.warn }}>· sin archivo</span>
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
                 {!isFamily && !isAudit && !isFuture && (
@@ -4299,9 +4336,10 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
                     <select value={evType[s.id] || EVIDENCE_TYPES[0]} onChange={(e) => setEvType({ ...evType, [s.id]: e.target.value })} className="text-xs rounded-md p-1.5" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
                       {EVIDENCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
-                    <label className="mbtn-outline text-xs px-4 py-1.5 rounded-full cursor-pointer flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}>
-                      <Paperclip size={13} /> Subir evidencia
-                      <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addEvidence(s.id, f.name, evType[s.id] || EVIDENCE_TYPES[0]); e.target.value = ""; }} />
+                    <label className="mbtn-outline text-xs px-4 py-1.5 rounded-full cursor-pointer flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary, opacity: subiendoEv === s.id ? 0.5 : 1 }}>
+                      <Paperclip size={13} /> {subiendoEv === s.id ? "Subiendo…" : "Subir evidencia"}
+                      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.docx,.xlsx" className="hidden" disabled={subiendoEv === s.id}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) addEvidence(s.id, f, evType[s.id] || EVIDENCE_TYPES[0]); e.target.value = ""; }} />
                     </label>
                     {isCurrent && !s.done && <button onClick={() => markDone(s.id)} style={{ background: C.primary, color: "#fff" }} className="mbtn flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-full"><CheckCircle2 size={13} /> Marcar como completado</button>}
                   </div>

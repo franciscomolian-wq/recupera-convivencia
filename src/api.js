@@ -76,6 +76,39 @@ export const api = {
   revocarAviso: (token) => request(`/api/consents/link/${token}/revocar`, { method: "POST" }),
   stepDone: (id, order) => request(`/api/cases/${id}/steps/${order}/done`, { method: "POST", auth: true }),
   addEvidence: (id, ev) => request(`/api/cases/${id}/evidence`, { method: "POST", body: ev, auth: true }),
+
+  // Sube el ARCHIVO de una evidencia. Se mandan los bytes crudos, no multipart: el servidor
+  // los recibe tal cual y así no hace falta una dependencia de parsing.
+  async subirEvidencia(caseId, file, tipo, stepOrder) {
+    const q = new URLSearchParams({ nombre: file.name, tipo: tipo || "Documento" });
+    if (stepOrder != null) q.set("stepOrder", String(stepOrder));
+    const res = await fetch(`${API_URL}/api/cases/${caseId}/evidence/archivo?${q}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", Authorization: "Bearer " + getToken() },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw { status: res.status, ...data };
+    return data;
+  },
+
+  // Descarga el archivo. No hay URL pública: pasa por el mismo control que el caso y queda
+  // en la auditoría, porque es evidencia sobre menores.
+  async descargarEvidencia(caseId, evidenceId, nombre) {
+    const res = await fetch(`${API_URL}/api/cases/${caseId}/evidence/${evidenceId}/archivo`, {
+      headers: { Authorization: "Bearer " + getToken() },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw { status: res.status, ...data };
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = nombre || "evidencia";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  },
   notifyCase: (id, mail) => request(`/api/cases/${id}/emails`, { method: "POST", body: mail, auth: true }),
   deriveCase: (id, deriv) => request(`/api/cases/${id}/derivations`, { method: "POST", body: deriv, auth: true }),
 
