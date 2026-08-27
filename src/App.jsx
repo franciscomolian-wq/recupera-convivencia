@@ -20,6 +20,7 @@ import {
   RECON_CATEGORIES, RECON_BADGES, infoRol, etiquetaRol, registrarCargos, cargosRegistrados,
   registrarEstablecimiento, establecimientoActual,
 } from "./data.js";
+import { generarPresentacion } from "./presentacion.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
@@ -4750,6 +4751,56 @@ function InformeDinamico() {
   );
 }
 
+/* Presentación automática de convivencia, para la cuenta pública, el Consejo Escolar y el
+   sostenedor. Las cifras vienen del servidor ya agregadas: aquí no hay forma de incluir el
+   nombre de un estudiante aunque se quisiera, y es deliberado — un PPT circula por correo. */
+function PresentacionConvivencia() {
+  const [generando, setGenerando] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [aviso, setAviso] = useState(null);
+
+  async function generar() {
+    setGenerando(true); setMsg(""); setAviso(null);
+    try {
+      const datos = await api.cifrasConvivencia();
+      const nombre = await generarPresentacion(datos, (k) => CASE_TYPES[k]?.label || k);
+      setMsg("Presentación descargada: " + nombre);
+      // Se dice antes de que lo descubra en la lámina, no después.
+      if (datos.casos && datos.casos.total === 0) {
+        setAviso("No hay casos registrados, así que la presentación lo dice explícitamente en vez de mostrar gráficos en cero. Cuando el equipo empiece a registrar, el informe se llena solo.");
+      } else if (!datos.casos) {
+        setAviso("Tu perfil no tiene acceso al módulo de casos, así que la presentación se generó sin esas cifras.");
+      }
+    } catch (e) {
+      setMsg(e?.error || "No se pudo generar la presentación.");
+    }
+    setGenerando(false);
+  }
+
+  return (
+    <Section icon={Megaphone} title="Presentación de convivencia">
+      <p style={{ color: C.textSoft }} className="text-xs mb-4 leading-relaxed">
+        Genera un archivo de PowerPoint con las cifras del establecimiento: casos por tipo y por
+        curso, situaciones críticas, evolución en el tiempo, cumplimiento de plazos, medidas y
+        puntos a mejorar. Pensado para la cuenta pública, el Consejo Escolar y el sostenedor.
+        <b> Contiene solo cifras agregadas</b>: no incluye nombres, RUN ni relatos de estudiantes,
+        porque un archivo así circula por correo y no se puede retirar.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn onClick={generar} disabled={generando}>
+          {generando ? "Generando…" : <><Megaphone size={15} /> Generar presentación</>}
+        </Btn>
+      </div>
+      {msg && <div style={{ color: /No se pudo/.test(msg) ? C.urgent : C.ok }} className="text-xs mt-3">{msg}</div>}
+      {aviso && (
+        <div style={{ background: "#FEF7E0", color: C.warn }} className="text-xs rounded-lg px-3 py-2 mt-2 leading-relaxed">
+          {aviso}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function ReportsPage({ cases, setCases, students = [] }) {
   const [ftype, setFtype] = useState("");
   const [flevel, setFlevel] = useState("");
@@ -4793,6 +4844,7 @@ function ReportsPage({ cases, setCases, students = [] }) {
       <PageHead title="Reportes y estadísticas" subtitle="Reporte dinámico: filtra por tipo, nivel y estado. Imprime, exporta (JSON/CSV) o importa respaldos."
         right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "reporte-casos.json")} onImport={async (data) => { if (Array.isArray(data)) { const n = await importCases(setCases, cases, data); alert(`${n} caso(s) importado(s) y guardado(s) en la base de datos.`); } }} />} />
       <div className="mb-6"><InformeDinamico /></div>
+      <div className="mb-6"><PresentacionConvivencia /></div>
 
       <div className="flex gap-3 mb-4 flex-wrap print:hidden">
         <select value={ftype} onChange={(e) => setFtype(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
