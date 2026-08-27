@@ -18,6 +18,7 @@ import {
   GESTION_TYPES, GESTION_ESTADOS, INITIAL_GESTIONES,
   DOC_CATEGORIES, INITIAL_DOCUMENTS, PME_DIMENSIONS, INITIAL_ACCIONES,
   RECON_CATEGORIES, RECON_BADGES, infoRol, etiquetaRol, registrarCargos, cargosRegistrados,
+  registrarEstablecimiento, establecimientoActual,
 } from "./data.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
@@ -561,6 +562,8 @@ function App() {
         setCases(mappedCases);
         setStudents(ss.map(apiStudentToUI));
         if (Array.isArray(ests) && ests.length) setEstablishments(ests.map((e) => apiEstablishmentToUI(e, mappedCases)));
+        // La insignia y el nombre quedan disponibles para la cabecera impresa de cada pantalla.
+        registrarEstablecimiento(ests.find((e) => e.id === session.establishmentId) || ests[0]);
         api.listInstitutions().then((ins) => { if (Array.isArray(ins) && ins.length) setInstitutions(ins); }).catch(() => {});
         // Los cargos propios se cargan siempre: sin ellos, quien tenga uno vería su rol
         // escrito como "otro:dupla-psicosocial" en toda la interfaz.
@@ -590,7 +593,7 @@ function App() {
     return () => { vivo = false; };
   }, [session?.id]);
 
-  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCargos([]); registrarCargos([]); setCourseTeachers(null); setReconCategories([]); };
+  const logout = () => { setToken(null); setSession(null); setCases([]); setStudents([]); setMessages([]); setEvents([]); setGestiones([]); setDocuments([]); setAcciones([]); setProtocols([]); setPermset(null); setCargos([]); registrarCargos([]); registrarEstablecimiento(null); setCourseTeachers(null); setReconCategories([]); };
 
   if (booting) return <Splash />;
   if (!session && inviteToken)
@@ -1339,7 +1342,17 @@ function StatusPill({ dl }) {
 }
 
 function PageHead({ title, subtitle, right }) {
+  // Banda que SOLO aparece al imprimir o exportar a PDF: es lo que hace que el documento se
+  // lea como del colegio y no como salida de un sistema externo.
+  const est = establecimientoActual();
   return (
+    <>
+      {(est.insignia || est.nombre) && (
+        <div className="hidden print:flex items-center gap-3 mb-4 pb-3" style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+          {est.insignia && <img src={est.insignia} alt="" style={{ height: 46, width: "auto" }} />}
+          <div style={{ ...serif, color: C.ink }} className="text-lg">{est.nombre}</div>
+        </div>
+      )}
     <div className="flex items-end justify-between gap-4 flex-wrap mb-6">
       <div>
         <div style={{ ...serif, color: C.ink }} className="text-2xl mb-1">{title}</div>
@@ -1347,6 +1360,7 @@ function PageHead({ title, subtitle, right }) {
       </div>
       {right}
     </div>
+    </>
   );
 }
 
@@ -2085,6 +2099,104 @@ function SituacionModal({ estudiantes, preseleccionados = [], onClose, onListo }
         </div>
       </div>
     </div>
+  );
+}
+
+/* Insignia del establecimiento.
+   La imagen se redimensiona y recomprime EN EL NAVEGADOR antes de subirla: así viaja de
+   pocos KB, se guarda como data URI y se puede incrustar tal cual en informes, actas,
+   citaciones y correos a las familias, que es donde tiene que aparecer para que un
+   documento se lea como del colegio y no como de un sistema externo. */
+const INSIGNIA_LADO = 320; // píxeles del lado mayor; de sobra para imprimir un logo
+
+function redimensionarImagen(file) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onerror = () => reject(new Error("No se pudo leer el archivo."));
+    lector.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("El archivo no es una imagen válida."));
+      img.onload = () => {
+        const escala = Math.min(1, INSIGNIA_LADO / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * escala));
+        const h = Math.max(1, Math.round(img.height * escala));
+        const lienzo = document.createElement("canvas");
+        lienzo.width = w; lienzo.height = h;
+        lienzo.getContext("2d").drawImage(img, 0, 0, w, h);
+        // PNG conserva la transparencia, que en una insignia importa.
+        resolve(lienzo.toDataURL("image/png"));
+      };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(file);
+  });
+}
+
+function InsigniaSection({ session, establishments, setEstablishments }) {
+  const est = establishments.find((e) => e.id === session.establishmentId);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  if (!est) return null;
+
+  async function subir(file) {
+    setBusy(true); setMsg("");
+    try {
+      const dataUri = await redimensionarImagen(file);
+      const r = await api.subirInsignia(est.id, dataUri);
+      setEstablishments((prev) => prev.map((e) => (e.id === est.id ? { ...e, insignia: r.insignia } : e)));
+      // El registro tambien: si no, la insignia no sale en la cabecera impresa hasta
+      // recargar la pagina, que es como si no se hubiera subido.
+      registrarEstablecimiento({ ...est, insignia: r.insignia });
+      setMsg("Insignia actualizada.");
+    } catch (e) { setMsg(e?.error || e?.message || "No se pudo subir la imagen."); }
+    setBusy(false);
+  }
+
+  async function quitar() {
+    setBusy(true); setMsg("");
+    try {
+      await api.quitarInsignia(est.id);
+      setEstablishments((prev) => prev.map((e) => (e.id === est.id ? { ...e, insignia: null } : e)));
+      registrarEstablecimiento({ ...est, insignia: null });
+      setMsg("Insignia quitada.");
+    } catch (e) { setMsg(e?.error || "No se pudo quitar."); }
+    setBusy(false);
+  }
+
+  return (
+    <Section icon={Building} title="Insignia del establecimiento">
+      <p style={{ color: C.textSoft }} className="text-xs mb-4 leading-relaxed">
+        Aparece en la plataforma y en lo que se imprime o exporta. Se admite PNG, JPG o WEBP;
+        la imagen se reduce automáticamente antes de subirla, así que puedes usar el archivo
+        original sin prepararlo.
+      </p>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div style={{ background: C.appBg, border: `1px solid ${C.cardBorder}`, width: 88, height: 88 }}
+          className="rounded-lg grid place-items-center overflow-hidden shrink-0">
+          {est.insignia
+            ? <img src={est.insignia} alt={"Insignia de " + est.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+            : <Building size={26} style={{ color: C.textSoft }} />}
+        </div>
+        <div className="flex flex-col gap-2">
+          <div style={{ color: C.ink }} className="text-sm font-medium">{est.name}</div>
+          <div className="flex gap-2 flex-wrap">
+            <label className="cursor-pointer">
+              <span style={{ background: C.primary, color: "#fff", opacity: busy ? 0.5 : 1 }} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium">
+                <UploadCloud size={15} /> {busy ? "Subiendo…" : est.insignia ? "Cambiar" : "Subir insignia"}
+              </span>
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={busy}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ""; }} />
+            </label>
+            {est.insignia && (
+              <button onClick={quitar} disabled={busy} className="rounded-md px-3 py-2 text-sm"
+                style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.urgent }}>Quitar</button>
+            )}
+          </div>
+        </div>
+      </div>
+      {msg && <div style={{ color: /No se pudo|supera|Solo se aceptan|no válid/.test(msg) ? C.urgent : C.primary }} className="text-xs mt-3">{msg}</div>}
+    </Section>
   );
 }
 
@@ -5429,7 +5541,7 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
 }
 
 /* ---------------------- CONFIGURACIÓN ----------------------------- */
-function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, setDocs, session }) {
+function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, setDocs, session, establishments = [], setEstablishments }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("docente");
   const [tpls, setTpls] = useState(emailTemplates);
@@ -5456,6 +5568,10 @@ function ConfigPage({ users, setUsers, emailTemplates, setEmailTemplates, docs, 
         </div>
         <div className="mt-3 flex items-center gap-3"><Btn onClick={() => { setEmailTemplates(tpls); setSavedTpl(true); setTimeout(() => setSavedTpl(false), 2000); }}><CheckCircle2 size={15} /> Guardar plantillas</Btn>{savedTpl && <span style={{ color: C.ok }} className="text-sm">Guardado</span>}</div>
       </Section>
+
+      {["coordinador", "director", "superadmin"].includes(session.role) && (
+        <InsigniaSection session={session} establishments={establishments} setEstablishments={setEstablishments} />
+      )}
 
       <FeriadosSection />
     </div>

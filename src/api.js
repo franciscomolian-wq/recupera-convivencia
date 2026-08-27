@@ -183,6 +183,9 @@ export const api = {
 
   // --- Establecimientos (panel Súper Admin) ---
   listEstablishments: () => request("/api/establishments", { auth: true }),
+  // Insignia del establecimiento: se manda ya redimensionada, como data URI.
+  subirInsignia: (id, insignia) => request(`/api/establishments/${id}/insignia`, { method: "PUT", body: { insignia }, auth: true }),
+  quitarInsignia: (id) => request(`/api/establishments/${id}/insignia`, { method: "DELETE", auth: true }),
   createEstablishment: (e) => request("/api/establishments", { method: "POST", body: e, auth: true }),
   updateEstablishment: (id, e) => request(`/api/establishments/${id}`, { method: "PATCH", body: e, auth: true }),
 

@@ -360,6 +360,17 @@ export const ROLES = {
    toda la aplicación es peor que este registro: son solo nombres de cargos, no estado.
    ---------------------------------------------------------------- */
 let CARGOS_PROPIOS = [];
+// Establecimiento de la sesión: su nombre y su insignia. Mismo registro de módulo que los
+// cargos, y por la misma razón: la cabecera impresa aparece en más de veinte pantallas y
+// arrastrar la prop hasta cada una es peor que este registro. No es estado: es identidad.
+let ESTABLECIMIENTO = { nombre: "", insignia: null };
+export function registrarEstablecimiento(e) {
+  ESTABLECIMIENTO = { nombre: e?.name || "", insignia: e?.insignia || null };
+}
+export function establecimientoActual() {
+  return ESTABLECIMIENTO;
+}
+
 export function registrarCargos(lista) {
   CARGOS_PROPIOS = Array.isArray(lista) ? lista : [];
 }
