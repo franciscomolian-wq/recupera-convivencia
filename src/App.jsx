@@ -1518,7 +1518,9 @@ function navKeysFromPerms(roleKey, permset) {
   const keys = ["dashboard", "cursos"];
   for (const m of PERM_MODULES) if (!m.accion && effLevel(roleKey, m.k, permset)) keys.push(m.k);
   if (effLevel(roleKey, "casos", permset) === "editar") keys.push("nuevo");
-  if (sc === "admin" || sc === "audit") keys.push("auditoria");
+  // El panel de auditoría no se le ofrece al sostenedor: el servidor se lo niega, y un menú
+  // que lleva a un 403 es peor que no tenerlo. Superintendencia sí lo conserva.
+  if (sc === "admin" || roleKey === "superintendencia") keys.push("auditoria");
   if (["coordinador", "director"].includes(roleKey)) keys.push("perfiles", "permisos");
   if (sc === "admin") keys.push("configuracion");
   return keys;
