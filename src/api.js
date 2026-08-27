@@ -173,6 +173,11 @@ export const api = {
 
   // --- Auditoría (Ley 21.719) ---
   listAudit: (limit = 200) => request(`/api/audit?limit=${limit}`, { auth: true }),
+
+  // Informe dinámico. El catálogo de columnas lo define el servidor según los permisos del
+  // perfil: aquí no se decide qué se puede ver.
+  columnasInforme: () => request("/api/informes/columnas", { auth: true }),
+  generarInforme: (datos) => request("/api/informes/generar", { method: "POST", body: datos, auth: true }),
   // Historial de modificaciones de un registro: qué cambió, cuándo, quién y de qué a qué.
   historialDe: (entity, id) => request(`/api/audit/historial/${entity}/${encodeURIComponent(id)}`, { auth: true }),
 

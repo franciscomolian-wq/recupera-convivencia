@@ -422,10 +422,17 @@ function parseSigeRows(rows) {
     const retirado = retiro && !/01-01-1900|1900-01-01/.test(retiro);
     const run = (iRun >= 0 ? c[iRun] : "").replace(/\D/g, "");
     const dv = (iDv >= 0 ? c[iDv] : "").trim();
-    const nombre = titleCaseName([nombres, iApP >= 0 ? c[iApP] : "", iApM >= 0 ? c[iApM] : ""].join(" "));
+    const apPat = iApP >= 0 ? c[iApP] : "";
+    const apMat = iApM >= 0 ? c[iApM] : "";
+    const nombre = titleCaseName([nombres, apPat, apMat].join(" "));
     const desc = c[iDesc] || "";
     out.push({
       name: nombre,
+      // Se guardan también por separado: SIGE las trae en columnas distintas y juntarlas
+      // perdía el corte, que es justo lo que un informe por apellido necesita.
+      nombres: titleCaseName(nombres),
+      apellidoPaterno: titleCaseName(apPat),
+      apellidoMaterno: titleCaseName(apMat),
       rut: run ? `${run}-${dv || ""}`.replace(/-$/, "") : "",
       nivel: sigeNivel(desc),
       grado: sigeGrado(desc),
@@ -4480,6 +4487,155 @@ function DerivationModal({ c, institutions, onClose, onDerive }) {
 }
 
 /* ------------------------- REPORTES ------------------------------- */
+/* Informe dinámico: título libre y columnas a elección.
+   El catálogo llega del servidor y solo trae lo que este perfil puede ver, así que aquí no
+   se decide nada sobre permisos: si una columna no aparece, es porque el colegio se la
+   cerró a ese rol. */
+function InformeDinamico() {
+  const [catalogo, setCatalogo] = useState(null);
+  const [titulo, setTitulo] = useState("");
+  const [sel, setSel] = useState(["name", "curso", "rut"]);
+  const [filtros, setFiltros] = useState({ curso: "", soloSinCorreoApoderado: false, soloNee: false });
+  const [res, setRes] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.columnasInforme().then(setCatalogo).catch((e) => setError(e?.error || "No se pudo cargar el catálogo de columnas."));
+  }, []);
+
+  const alterna = (k) => setSel((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+
+  async function generar() {
+    if (!sel.length) { setError("Elige al menos una columna."); return; }
+    setCargando(true); setError(""); setRes(null);
+    try {
+      const limpios = { ...filtros };
+      if (!limpios.curso) delete limpios.curso;
+      setRes(await api.generarInforme({ titulo: titulo.trim() || "Informe", columnas: sel, filtros: limpios }));
+    } catch (e) { setError(e?.error || "No se pudo generar el informe."); }
+    setCargando(false);
+  }
+
+  function descargarCSV() {
+    if (!res) return;
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lineas = [res.columnas.map((c) => esc(c.label)).join(";"), ...res.filas.map((f) => f.map(esc).join(";"))];
+    // BOM para que Excel abra los acentos correctamente.
+    const blob = new Blob(["\uFEFF" + lineas.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (res.titulo || "informe").replace(/[^\w\s.-]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() + ".csv";
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const grupos = catalogo ? [...new Set(catalogo.columnas.map((c) => c.grupo))] : [];
+
+  return (
+    <Section icon={BarChart3} title="Informe dinámico">
+      <p style={{ color: C.textSoft }} className="text-xs mb-4 leading-relaxed">
+        Ponle el título que quieras y elige las columnas. Solo aparecen las que tu perfil puede
+        ver: si falta alguna, es porque el establecimiento se la cerró a tu rol en «Permisos por rol».
+        Cada informe generado queda registrado en la auditoría.
+      </p>
+
+      <div className="flex flex-col gap-4">
+        <div>
+          <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Título del informe</label>
+          <input value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={120}
+            placeholder="Ej: Nómina 7° básico con casos de convivencia"
+            className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+        </div>
+
+        {!catalogo && !error && <div style={{ color: C.textSoft }} className="text-xs">Cargando columnas…</div>}
+
+        {catalogo && grupos.map((g) => (
+          <div key={g}>
+            <div style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium mb-1.5">{g}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {catalogo.columnas.filter((c) => c.grupo === g).map((c) => {
+                const on = sel.includes(c.k);
+                return (
+                  <button key={c.k} onClick={() => alterna(c.k)}
+                    style={{ background: on ? C.primary : C.cardBg, color: on ? "#fff" : C.text, border: `1px solid ${on ? C.primary : C.cardBorder}` }}
+                    className="text-xs px-2.5 py-1.5 rounded-full">
+                    {on ? "✓ " : "+ "}{c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Curso (opcional)</label>
+            <input value={filtros.curso} onChange={(e) => setFiltros({ ...filtros, curso: e.target.value })}
+              placeholder="Ej: 7°A" className="mt-1.5 rounded-md p-2 text-sm" style={inp} />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: C.text }}>
+            <input type="checkbox" checked={filtros.soloSinCorreoApoderado}
+              onChange={(e) => setFiltros({ ...filtros, soloSinCorreoApoderado: e.target.checked })} />
+            Solo quienes no tienen correo de apoderado
+          </label>
+          <label className="flex items-center gap-1.5 text-xs" style={{ color: C.text }}>
+            <input type="checkbox" checked={filtros.soloNee}
+              onChange={(e) => setFiltros({ ...filtros, soloNee: e.target.checked })} />
+            Solo estudiantes con NEE
+          </label>
+        </div>
+
+        {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
+
+        <div className="flex flex-wrap gap-2">
+          <Btn onClick={generar} disabled={cargando || !sel.length}>{cargando ? "Generando…" : <><BarChart3 size={15} /> Generar informe</>}</Btn>
+          {res && <button onClick={descargarCSV} className="rounded-md px-3.5 py-2.5 text-sm inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><Download size={14} /> Descargar CSV</button>}
+          {res && <button onClick={printView} className="rounded-md px-3.5 py-2.5 text-sm inline-flex items-center gap-1.5" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary }}><Printer size={14} /> Imprimir / PDF</button>}
+        </div>
+      </div>
+
+      {res && (
+        <div className="mt-5">
+          <div style={{ ...serif, color: C.ink }} className="text-base mb-1">{res.titulo}</div>
+          <div style={{ color: C.textSoft }} className="text-xs mb-3">
+            {res.total} fila(s) · generado por {res.generadoPor}
+            {res.truncado && <b style={{ color: C.warn }}> · se alcanzó el tope de 5.000 filas: el informe está incompleto</b>}
+          </div>
+
+          {res.negadas?.length > 0 && (
+            <div style={{ background: "#FEF7E0", color: C.warn }} className="text-xs rounded-lg px-3 py-2 mb-3">
+              Estas columnas no se incluyeron porque tu perfil no puede verlas: {res.negadas.join(", ")}.
+            </div>
+          )}
+
+          <div className="overflow-x-auto" style={{ border: `1px solid ${C.cardBorder}`, borderRadius: 8 }}>
+            <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: C.appBg }}>
+                  {res.columnas.map((c) => <th key={c.k} style={{ color: C.ink, borderBottom: `1px solid ${C.cardBorder}` }} className="text-left px-2.5 py-2 font-semibold whitespace-nowrap">{c.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {res.filas.slice(0, 200).map((f, i) => (
+                  <tr key={i}>
+                    {f.map((v, k) => <td key={k} style={{ color: C.text, borderTop: `1px solid ${C.cardBorder}` }} className="px-2.5 py-1.5 whitespace-nowrap">{String(v ?? "")}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {res.filas.length > 200 && (
+            <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
+              En pantalla se muestran las primeras 200 filas. El CSV trae las {res.total}.
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function ReportsPage({ cases, setCases, students = [] }) {
   const [ftype, setFtype] = useState("");
   const [flevel, setFlevel] = useState("");
@@ -4522,6 +4678,8 @@ function ReportsPage({ cases, setCases, students = [] }) {
     <div>
       <PageHead title="Reportes y estadísticas" subtitle="Reporte dinámico: filtra por tipo, nivel y estado. Imprime, exporta (JSON/CSV) o importa respaldos."
         right={<Toolbar onPrint={printView} onExport={() => exportJSON(cases, "reporte-casos.json")} onImport={async (data) => { if (Array.isArray(data)) { const n = await importCases(setCases, cases, data); alert(`${n} caso(s) importado(s) y guardado(s) en la base de datos.`); } }} />} />
+      <div className="mb-6"><InformeDinamico /></div>
+
       <div className="flex gap-3 mb-4 flex-wrap print:hidden">
         <select value={ftype} onChange={(e) => setFtype(e.target.value)} className="rounded-md p-2 text-sm" style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text }}>
           <option value="">Todos los tipos</option>
