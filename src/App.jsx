@@ -135,6 +135,7 @@ const REC_KIND_TO_ARR = {
   pieInforme: "pieInformes", pieAdecuacion: "pieAdecuaciones", pieEstrategia: "pieEstrategias", pieReunion: "pieReuniones",
   citacionApo: "citacionesApo", acuerdoApo: "acuerdosApo", docApo: "docsApo",
   reconocimiento: "reconocimientos",
+  situacion: "situaciones",
 };
 const REC_ARR_TO_KIND = Object.fromEntries(Object.entries(REC_KIND_TO_ARR).map(([k, v]) => [v, k]));
 
@@ -163,6 +164,7 @@ function apiStudentToUI(as) {
     anotaciones: [], suspensiones: [], atrasos: [], retiros: [],
     pieInformes: [], pieAdecuaciones: [], pieEstrategias: [], pieReuniones: [],
     citacionesApo: [], acuerdosApo: [], docsApo: [], reconocimientos: [],
+    situaciones: [],
   };
   // Desempaqueta los registros genéricos en sus arreglos: {id, ...data}
   for (const r of as.records || []) {
@@ -1968,6 +1970,117 @@ function HistorialCambios({ entity, id }) {
   );
 }
 
+/* Registrar una situación de convivencia.
+   Tres campos y nada más: sin tipificar entre quince categorías legales, sin abrir un
+   expediente con plazos corriendo. Es la puerta que faltaba para que un profesor registre
+   un empujón en el recreo, que es de donde sale el historial que en octubre no existe. */
+function SituacionModal({ estudiantes, preseleccionados = [], onClose, onListo }) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const [sel, setSel] = useState(preseleccionados);
+  const [fecha, setFecha] = useState(hoy);
+  const [lugar, setLugar] = useState("");
+  const [queOcurrio, setQueOcurrio] = useState("");
+  const [queHice, setQueHice] = useState("");
+  const [busca, setBusca] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+
+  const candidatos = estudiantes
+    .filter((s) => !busca || `${s.name} ${s.curso || ""}`.toLowerCase().includes(busca.toLowerCase()))
+    .slice(0, 40);
+  const alterna = (id) => setSel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  async function guardar() {
+    if (!sel.length) { setError("Elige al menos un estudiante."); return; }
+    if (!queOcurrio.trim()) { setError("Escribe qué ocurrió."); return; }
+    setGuardando(true); setError("");
+    try {
+      const r = await api.registrarSituacion({ estudiantes: sel, fecha, lugar, queOcurrio, queHice });
+      onListo(r);
+    } catch (e) {
+      setError(e?.error || "No se pudo registrar.");
+      setGuardando(false);
+    }
+  }
+
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-2xl p-6 w-full max-w-lg shadow-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center gap-2.5 mb-1">
+          <ClipboardList size={17} style={{ color: C.primary }} />
+          <div style={{ ...serif, color: C.ink }} className="text-base flex-1">Registrar una situación</div>
+          <button onClick={onClose} style={{ color: C.textSoft }}><X size={16} /></button>
+        </div>
+        <p style={{ color: C.textSoft }} className="text-xs mb-4 leading-relaxed">
+          Queda en el expediente de cada estudiante involucrado. <b>No abre un caso ni inicia
+          ningún protocolo</b>: es el registro de lo que pasó y de lo que hiciste. Si más
+          adelante hay que formalizarlo, esto ya queda escrito.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">¿Con quiénes?</label>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o curso" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+            {sel.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {sel.map((id) => {
+                  const s = estudiantes.find((x) => x.id === id);
+                  return (
+                    <span key={id} style={{ background: C.primary + "1A", color: C.primary }} className="inline-flex items-center gap-1.5 text-xs rounded-full pl-2.5 pr-1.5 py-1">
+                      {s ? s.name : id}
+                      <button onClick={() => alterna(id)} style={{ color: C.primary }} className="p-0.5"><X size={11} /></button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ border: `1px solid ${C.cardBorder}`, maxHeight: 132 }} className="mt-2 rounded-md overflow-y-auto">
+              {candidatos.length === 0 && <div style={{ color: C.textSoft }} className="text-xs p-2.5">Sin coincidencias.</div>}
+              {candidatos.map((s) => (
+                <button key={s.id} onClick={() => alterna(s.id)} className="w-full text-left px-2.5 py-1.5 text-sm flex items-center gap-2"
+                  style={{ background: sel.includes(s.id) ? C.primary + "12" : "transparent", color: C.ink }}>
+                  <span style={{ color: sel.includes(s.id) ? C.primary : C.textSoft }}>{sel.includes(s.id) ? "✓" : "+"}</span>
+                  <span className="flex-1">{s.name}</span>
+                  <span style={{ color: C.textSoft }} className="text-xs">{s.curso}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Cuándo</label>
+              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+            </div>
+            <div>
+              <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">Dónde (opcional)</label>
+              <input value={lugar} onChange={(e) => setLugar(e.target.value)} placeholder="Patio, sala, pasillo…" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">¿Qué ocurrió?</label>
+            <textarea value={queOcurrio} onChange={(e) => setQueOcurrio(e.target.value)} rows={3} placeholder="Lo que viste, en tus palabras." className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className="text-xs uppercase tracking-wide font-medium">¿Qué hiciste? (opcional)</label>
+            <textarea value={queHice} onChange={(e) => setQueHice(e.target.value)} rows={2} placeholder="Conversé con ambos, avisé a la profesora jefe…" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={inp} />
+          </div>
+
+          {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="text-xs rounded-lg px-3 py-2 flex items-center gap-2"><AlertTriangle size={14} /> {error}</div>}
+
+          <div className="flex gap-2 justify-end mt-1">
+            <button onClick={onClose} className="rounded-md px-3.5 py-2.5 text-sm" style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.textSoft }}>Cancelar</button>
+            <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : <><Save size={15} /> Registrar</>}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExpBlock({ icon: Icon, title, children }) {
   return (
     <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-xl p-5 mb-4">
@@ -1983,6 +2096,17 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
   // otra cosa. Cargar la nómina y los correos lo gobierna la matriz de permisos.
   const canManage = ["coordinador", "director", "superadmin"].includes(roleKey);
   const puedeCargarNomina = effLevel(roleKey, "nomina", permset) === "editar";
+  // Registrar una situación exige lo mismo que editar un expediente, que es lo que un
+  // docente ya tiene por defecto: la idea es que pueda registrar sin pedirle permiso a nadie.
+  const puedeRegistrar = effLevel(roleKey, "expedientes", permset) === "editar";
+  const [situacionAbierta, setSituacionAbierta] = useState(false);
+  const [situacionAviso, setSituacionAviso] = useState(null);
+
+  async function trasRegistrar(r) {
+    setSituacionAbierta(false);
+    setSituacionAviso(r);
+    try { const ss = await api.listStudents(); setStudents(ss.map(apiStudentToUI)); } catch { /* el registro ya quedó guardado */ }
+  }
   const [nivel, setNivel] = useState("");
   const [grado, setGrado] = useState("");
   const [letra, setLetra] = useState("");
@@ -2137,7 +2261,39 @@ function CoursesPage({ students, setStudents, courseTeachers, setCourseTeachers,
 
   return (
     <div className="max-w-3xl">
-      <PageHead title="Cursos" subtitle="Repositorio de estudiantes por curso. Elige nivel, grado y letra para ver a los alumnos del curso y su profesor jefe." right={<Toolbar onPrint={printView} />} />
+      <PageHead
+        title="Cursos"
+        subtitle="Repositorio de estudiantes por curso. Elige nivel, grado y letra para ver a los alumnos del curso y su profesor jefe."
+        right={
+          <div className="flex items-center gap-2">
+            {puedeRegistrar && students.length > 0 && (
+              <Btn onClick={() => setSituacionAbierta(true)}><ClipboardList size={15} /> Registrar situación</Btn>
+            )}
+            <Toolbar onPrint={printView} />
+          </div>
+        }
+      />
+
+      {situacionAviso && (
+        <div style={{ background: C.ok + "14", border: `1px solid ${C.ok}55` }} className="rounded-lg p-3.5 mb-5 print:hidden">
+          <div style={{ color: C.ok }} className="text-sm font-medium">
+            Registrado en {situacionAviso.registrados} expediente(s).
+          </div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1 leading-relaxed">
+            {situacionAviso.porEstudiante.map((p) => `${p.name}: ${p.total} situación(es) registrada(s)`).join(" · ")}
+          </div>
+          <button onClick={() => setSituacionAviso(null)} style={{ color: C.primary }} className="text-xs mt-2">Cerrar</button>
+        </div>
+      )}
+
+      {situacionAbierta && (
+        <SituacionModal
+          estudiantes={students}
+          preseleccionados={[]}
+          onClose={() => setSituacionAbierta(false)}
+          onListo={trasRegistrar}
+        />
+      )}
 
       {puedeCargarNomina && (
         <div style={{ background: C.cardBg, border: `1px dashed ${C.cardBorder}` }} className="rounded-lg p-4 mb-5">
@@ -2538,6 +2694,34 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       {/* El apoderado no lo ve: el servidor se lo niega, y mostrar un bloque que
           siempre falla es peor que no mostrarlo. Su derecho de acceso a los datos de su
           pupilo/a se ejerce con la exportacion del expediente. */}
+      {(s.situaciones || []).length > 0 && (
+        <ExpBlock icon={ClipboardList} title={`Situaciones registradas (${s.situaciones.length})`}>
+          <p style={{ color: C.textSoft }} className="text-[11px] mb-3">
+            Registros del día a día, sin protocolo asociado. Son la materia prima del historial:
+            un hecho aislado no dice nada, tres en un mes sí.
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {[...s.situaciones].sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || ""))).map((x, i) => {
+              const otros = (x.participantes || []).filter((p) => p.id !== s.id);
+              return (
+                <div key={x.id || i} style={{ borderLeft: `2px solid ${C.cardBorder}` }} className="pl-3">
+                  <div style={{ color: C.textSoft }} className="text-[11px]">
+                    {x.fecha}{x.lugar ? " · " + x.lugar : ""} · registró {x.registradoPor || "—"}
+                  </div>
+                  <div style={{ color: C.ink }} className="text-sm mt-0.5">{x.queOcurrio}</div>
+                  {x.queHice && <div style={{ color: C.ink2 || C.textSoft }} className="text-[13px] mt-1"><b>Qué se hizo:</b> {x.queHice}</div>}
+                  {otros.length > 0 && (
+                    <div style={{ color: C.textSoft }} className="text-[11px] mt-1">
+                      También quedó en el expediente de {otros.map((p) => p.name).join(", ")}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ExpBlock>
+      )}
+
       {role.scope !== "family" && <HistorialCambios entity="student" id={s.id} />}
 
       {medModal && (

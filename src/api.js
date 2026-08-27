@@ -84,6 +84,8 @@ export const api = {
   getStudent: (id) => request(`/api/students/${id}`, { auth: true }),
   createStudent: (s) => request("/api/students", { method: "POST", body: s, auth: true }),
   bulkStudents: (students) => request("/api/students/bulk", { method: "POST", body: { students }, auth: true }),
+  // Registro liviano de una situación de convivencia: sin tipificación legal ni plazos.
+  registrarSituacion: (datos) => request("/api/students/situaciones", { method: "POST", body: datos, auth: true }),
 
   // Cargos propios del establecimiento ("Otros"): los que no están en la lista del sistema.
   listRoles: (establishmentId) => request("/api/roles" + (establishmentId ? "?establishmentId=" + encodeURIComponent(establishmentId) : ""), { auth: true }),
