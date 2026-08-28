@@ -116,7 +116,10 @@ export const api = {
   listStudents: () => request("/api/students", { auth: true }),
   getStudent: (id) => request(`/api/students/${id}`, { auth: true }),
   createStudent: (s) => request("/api/students", { method: "POST", body: s, auth: true }),
-  bulkStudents: (students) => request("/api/students/bulk", { method: "POST", body: { students }, auth: true }),
+  // establishmentId solo lo manda el panel central, y solo lo obedece el servidor si quien
+  // pide es súper administrador. Para una cuenta del colegio va en undefined y el servidor
+  // usa el suyo, que es lo que impide cargar sobre un establecimiento ajeno.
+  bulkStudents: (students, establishmentId) => request("/api/students/bulk", { method: "POST", body: { students, establishmentId }, auth: true }),
   // Registro liviano de una situación de convivencia: sin tipificación legal ni plazos.
   registrarSituacion: (datos) => request("/api/students/situaciones", { method: "POST", body: datos, auth: true }),
 

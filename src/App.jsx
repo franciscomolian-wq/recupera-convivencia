@@ -398,6 +398,17 @@ function sigeGrado(descGrado) {
   if (m) return m[1] + "°";
   return titleCaseName(descGrado);
 }
+/* SIGE exporta en Latin-1 (ISO-8859-1). Si se lee como UTF-8, los apellidos con tilde y con
+   ñ llegan rotos a la base y ya no calzan con nada. */
+function leerArchivoSige(f) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => { try { resolve(new TextDecoder("iso-8859-1").decode(reader.result)); } catch (err) { reject(err); } };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(f);
+  });
+}
+
 function parseSigeRows(rows) {
   if (!rows.length) return [];
   const header = rows[0].map(stripAccents);
@@ -6254,6 +6265,97 @@ function AdminSystem() {
   );
 }
 
+/* Carga de la nómina desde el panel central.
+   Incorporar un colegio no puede quedar bloqueado hasta que alguien de su equipo active la
+   invitación: con Campanita eso tardó semanas y el establecimiento quedó vacío todo ese
+   tiempo. Aquí el súper administrador deja la nómina cargada de entrada y el colegio entra a
+   una plataforma que ya sabe quiénes son sus estudiantes.
+   El colegio de destino se elige a mano y no tiene valor por defecto: es la única forma de
+   que una carga sea dirigida y no un accidente. */
+function AdminNomina({ establishments }) {
+  const [destino, setDestino] = useState("");
+  const [imp, setImp] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const inpS = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const colegio = establishments.find((e) => e.id === destino);
+
+  async function onFile(e) {
+    const files = [...(e.target.files || [])]; e.target.value = "";
+    if (!files.length) return;
+    setMsg(""); setImp(null);
+    try {
+      const rows = []; const seen = new Set();
+      for (const f of files) {
+        for (const r of parseSigeNomina(await leerArchivoSige(f))) {
+          const key = r.rut || `${r.name}|${r.grado}|${r.letra}`;
+          if (seen.has(key)) continue;
+          seen.add(key); rows.push(r);
+        }
+      }
+      if (!rows.length) { setMsg("No se reconoció el formato. Usa la nómina exportada de SIGE (Excel), .htm o .csv con las mismas columnas."); return; }
+      const activos = rows.filter((r) => !r.retirado);
+      setImp({ rows, activos, retirados: rows.length - activos.length, archivos: files.length });
+    } catch { setMsg("No se pudo leer el archivo."); }
+  }
+
+  async function confirmar(incluirRetirados) {
+    if (!imp || !destino) return;
+    setBusy(true); setMsg("");
+    try {
+      const payload = (incluirRetirados ? imp.rows : imp.activos).map(({ retirado, ...r }) => r);
+      const res = await api.bulkStudents(payload, destino);
+      setImp(null);
+      setMsg(`Nómina cargada en ${colegio?.name || "el establecimiento"}: ${res.created} nuevo(s), ${res.updated} actualizado(s)${res.skipped ? `, ${res.skipped} omitido(s)` : ""}.`);
+    } catch (e) { setMsg("Error al cargar: " + (e?.error || e?.message || "intenta de nuevo.")); }
+    setBusy(false);
+  }
+
+  return (
+    <Section icon={Upload} title="Cargar la nómina de un establecimiento">
+      <p style={{ color: C.textSoft }} className="text-xs mb-4 leading-relaxed">
+        Para dejar un colegio nuevo operativo sin esperar a que su equipo active las cuentas.
+        Sube la nómina exportada de SIGE y elige a qué establecimiento va. El calce es por RUN:
+        volver a subirla actualiza el curso de quien ya esté y no duplica a nadie.
+        <b> Los datos del apoderado no se tocan</b>, así que reimportar no borra los correos ya cargados.
+      </p>
+      <div className="flex flex-col gap-3">
+        <select value={destino} onChange={(ev) => { setDestino(ev.target.value); setImp(null); setMsg(""); }} className="rounded-md p-2.5 text-sm" style={inpS}>
+          <option value="">— Elige el establecimiento de destino —</option>
+          {establishments.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
+        </select>
+
+        {!destino && <div style={{ color: C.textSoft }} className="text-[11px]">Elige primero el colegio: la nómina se carga donde tú indiques, no hay destino por omisión.</div>}
+
+        {destino && !imp && (
+          <label className="inline-flex">
+            <input type="file" accept=".xls,.xlsx,.htm,.html,.csv,.txt" multiple onChange={onFile} className="hidden" />
+            <span style={{ background: C.admin, color: "#fff" }} className="rounded-lg px-3 py-2 text-sm font-medium cursor-pointer inline-flex items-center gap-2">
+              <Upload size={15} /> Elegir la nómina SIGE
+            </span>
+          </label>
+        )}
+
+        {imp && (
+          <div style={{ background: C.adminSoft, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-3">
+            <div style={{ color: C.ink }} className="text-sm mb-1">
+              Se detectaron <b>{imp.rows.length}</b> estudiante(s){imp.archivos > 1 ? ` en ${imp.archivos} archivos` : ""}: {imp.activos.length} activo(s){imp.retirados ? `, ${imp.retirados} retirado(s)` : ""}.
+            </div>
+            <div style={{ color: C.textSoft }} className="text-xs mb-3">Destino: <b>{colegio?.name}</b>{colegio?.rbd ? ` (RBD ${colegio.rbd})` : ""}.</div>
+            <div className="flex flex-wrap gap-2">
+              <Btn accent={C.admin} onClick={() => confirmar(false)} disabled={busy}>{busy ? "Cargando…" : `Cargar ${imp.activos.length} activo(s)`}</Btn>
+              {imp.retirados > 0 && <Btn variant="ghost" onClick={() => confirmar(true)} disabled={busy}>Incluir retirados ({imp.rows.length})</Btn>}
+              <Btn variant="ghost" onClick={() => setImp(null)} disabled={busy}>Cancelar</Btn>
+            </div>
+          </div>
+        )}
+
+        {msg && <div style={{ color: /Error|No se/.test(msg) ? C.urgent : C.ok }} className="text-xs">{msg}</div>}
+      </div>
+    </Section>
+  );
+}
+
 function AdminConfig({ establishments, setEstablishments }) {
   const [name, setName] = useState("");
   const [rbd, setRbd] = useState("");
@@ -6285,6 +6387,8 @@ function AdminConfig({ establishments, setEstablishments }) {
           }}><Plus size={15} /> Registrar</Btn></div>
         </div>
       </Section>
+
+      <div className="mt-4"><AdminNomina establishments={establishments} /></div>
     </div>
   );
 }
