@@ -632,6 +632,10 @@ function App() {
   // a undefined tumbaba la aplicación entera justo al iniciar sesión.
   const role = infoRol(session.role, cargos);
   if (role.scope === "superadmin") return <AdminApp {...shared} />;
+  // Alcance de red: mira varios colegios y no pertenece a ninguno, así que el portal de
+  // establecimiento no le sirve — quedaría vacío. Las dos condiciones van juntas a propósito,
+  // igual que en el servidor: el rol solo, o la red sola, no bastan.
+  if (session.redId && ROLES_DE_RED_UI.has(session.role)) return <RedApp {...shared} />;
   return <PortalApp {...shared} />;
 }
 
@@ -5300,7 +5304,7 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
   const canManage = ["superadmin", "coordinador", "director"].includes(roleKey);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: "" });
+  const [form, setForm] = useState({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: "", redId: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState(null); // { url, name }
@@ -5312,10 +5316,17 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
   // Sin esto la cuenta se creaba sin establecimiento y la persona no veía nada.
   const esSuper = roleKey === "superadmin";
   const [establecimientos, setEstablecimientos] = useState([]);
+  const [redes, setRedes] = useState([]);
   useEffect(() => {
     if (!esSuper) return;
     api.listEstablishments().then(setEstablecimientos).catch(() => {});
+    api.listRedes().then(setRedes).catch(() => {});
   }, [esSuper]);
+
+  // Una cuenta con alcance de red no pertenece a un colegio: pertenece a una red. El
+  // formulario cambia de selector según el rol elegido, en vez de mostrar los dos y dejar que
+  // se llenen ambos — que es como se crean las cuentas que dicen una cosa y hacen otra.
+  const esRolDeRed = ROLES_DE_RED_UI.has(form.role);
 
   function reload() {
     if (!canManage) { setLoading(false); return; }
@@ -5340,7 +5351,7 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
       }
       const res = await api.inviteUser(datos);
       setInvite({ url: res.inviteUrl, name: form.name, email: form.email, emailSent: res.emailSent, mailerConfigured: res.mailerConfigured });
-      setForm((f) => ({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: f.establishmentId }));
+      setForm((f) => ({ name: "", rut: "", role: "profesorJefe", email: "", establishmentId: f.establishmentId, redId: f.redId }));
       reload();
     } catch (err) {
       setError((err && (err.error || err.message)) || "No se pudo generar la invitación.");
@@ -5389,6 +5400,10 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
   }
 
   const [editing, setEditing] = useState(null); // { id, name, email, role }
+  const nombreDeRed = (id) => redes.find((r) => r.id === id)?.nombre;
+  // Una cuenta se queda sin ver nada si no tiene NI colegio NI red. La central sí puede no
+  // tener ninguno de los dos: ve todo.
+  const sinAlcance = (u) => !u.establishmentId && !u.redId && u.role !== "superadmin";
   async function guardarEdicion() {
     if (!editing) return;
     try {
@@ -5416,7 +5431,11 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
           <input value={form.rut} onChange={(e) => setForm({ ...form, rut: e.target.value })} placeholder="RUT (12.345.678-9)" className="rounded-md p-2.5 text-sm" style={inp} />
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="rounded-md p-2.5 text-sm" style={inp}>
             <optgroup label="Roles del sistema">
-              {Object.entries(ROLES).filter(([k]) => k !== "superadmin").map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              {/* Los roles con alcance de red no se ofrecen a un colegio: el servidor los
+                  rechaza igual, y es mejor no ofrecer lo que va a fallar. */}
+              {Object.entries(ROLES)
+                .filter(([k]) => k !== "superadmin" && (esSuper || !ROLES_DE_RED_UI.has(k)))
+                .map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </optgroup>
             {cargos.length > 0 && (
               <optgroup label="Cargos de tu establecimiento">
@@ -5436,16 +5455,31 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
               style={{ ...inp, borderColor: C.primary }}
             />
           )}
-          {esSuper && (
+          {esSuper && !esRolDeRed && (
             <select value={form.establishmentId} onChange={(e) => setForm({ ...form, establishmentId: e.target.value })} className="rounded-md p-2.5 text-sm sm:col-span-2" style={inp}>
               <option value="">— Elige el establecimiento —</option>
               {establecimientos.map((e) => <option key={e.id} value={e.id}>{e.name}{e.rbd ? " (RBD " + e.rbd + ")" : ""}</option>)}
             </select>
           )}
+          {esSuper && esRolDeRed && (
+            <select value={form.redId} onChange={(e) => setForm({ ...form, redId: e.target.value })} className="rounded-md p-2.5 text-sm sm:col-span-2" style={{ ...inp, borderColor: C.admin }}>
+              <option value="">— Elige la red —</option>
+              {redes.map((r) => <option key={r.id} value={r.id}>{r.nombre} ({r.establecimientos} establecimiento{r.establecimientos === 1 ? "" : "s"})</option>)}
+            </select>
+          )}
         </div>
-        {esSuper && !form.establishmentId && (
+        {esSuper && !esRolDeRed && !form.establishmentId && (
           <div style={{ color: C.textSoft }} className="text-[11px] mt-2">
             Estás invitando desde administración central: elige el colegio al que pertenece la persona, o la cuenta quedará sin acceso a nada.
+          </div>
+        )}
+        {esSuper && esRolDeRed && (
+          <div style={{ background: "#E8F0FE", color: C.text }} className="text-[11px] rounded-lg px-3 py-2 mt-2 leading-relaxed">
+            <b>Cuenta con alcance de red.</b> No pertenece a ningún colegio: va a ver
+            {form.redId ? <> los <b>{redes.find((r) => r.id === form.redId)?.establecimientos ?? 0}</b> establecimiento(s)</> : " todos los establecimientos"} de la
+            red que elijas, y ninguno más. Es <b>solo de lectura y solo cifras agregadas</b>:
+            monitorea el cumplimiento, no accede a expedientes ni registra casos.
+            {!redes.length && <> Todavía no hay ninguna red creada — créala primero en <b>Redes y SLEP</b>.</>}
           </div>
         )}
         {form.role === OTRO && (
@@ -5477,13 +5511,13 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
         )}
       </Section>
 
-      {esSuper && users.some((u) => !u.establishmentId && u.role !== "superadmin") && (
+      {esSuper && users.some(sinAlcance) && (
         <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3 mb-4 text-xs">
           <div style={{ color: C.ink }} className="font-medium mb-1 flex items-center gap-1.5">
             <AlertTriangle size={14} style={{ color: C.warn }} /> Hay cuentas sin establecimiento asignado
           </div>
           <div style={{ color: C.text }}>
-            {users.filter((u) => !u.establishmentId && u.role !== "superadmin").map((u) => u.name).join(", ")}
+            {users.filter(sinAlcance).map((u) => u.name).join(", ")}
             {" — "}pueden entrar a la plataforma pero no ven ningún dato. Edítalas y asígnales su colegio.
           </div>
         </div>
@@ -5549,7 +5583,7 @@ function PerfilesPage({ roleKey, cargos = [], setCargos }) {
                 <div style={{ background: u.activated ? C.ok : C.warn }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><UserCircle size={17} color="#fff" /></div>
                 <div className="min-w-0 flex-1">
                   <div style={{ color: C.ink }} className="text-sm font-medium truncate">{u.name}</div>
-                  <div style={{ color: C.textSoft }} className="text-xs">{r.label}{u.rut ? ` · ${u.rut}` : ""}</div>
+                  <div style={{ color: C.textSoft }} className="text-xs">{r.label}{u.rut ? ` · ${u.rut}` : ""}{u.redId && nombreDeRed(u.redId) ? ` · red: ${nombreDeRed(u.redId)}` : ""}</div>
                   <div className="text-[11px] mt-0.5" style={{ color: u.activated ? C.ok : C.warn }}>
                     {u.activated ? (u.totpEnabled ? "Activa · 2FA on" : "Activa") : "Invitación pendiente"}
                   </div>
@@ -5776,10 +5810,361 @@ function Section({ icon: Icon, title, children }) {
 /* =================================================================
    SÚPER ADMINISTRADOR
    ================================================================= */
+// Roles con alcance de red. Copia deliberada de ROLES_DE_RED del servidor
+// (recupera-convivencia-api/src/lib/alcance.js), y aquí solo decide QUÉ PANTALLA se muestra.
+// Quién ve qué datos lo decide el servidor y nada más: si esta lista quedara desfasada, lo
+// peor que puede pasar es que alguien vea un panel vacío, nunca datos que no le corresponden.
+const ROLES_DE_RED_UI = new Set(["sostenedor", "redConvivencia"]);
+
+/* =================================================================
+   PANEL DE RED — lo que ve la encargada de convivencia de un SLEP
+   =================================================================
+   Muestra CIFRAS, no expedientes. El servidor devuelve solo agregados: aquí no hay forma de
+   pintar un nombre, un RUN ni un relato porque no llegan.
+
+   Es una decisión, no una limitación técnica. El sostenedor es el responsable del
+   tratamiento y podría acceder al detalle; pero para monitorear no hacen falta los datos
+   personales de los menores, y lo que la red necesita saber tampoco es quién, sino DÓNDE
+   está el riesgo. El orden de la pantalla sigue esa idea: primero lo que la deja expuesta
+   ante la Superintendencia, después el volumen. */
+
+const NIVEL_ALERTA = {
+  critico: { label: "Crítico", color: "#B3261E", bg: "#FCE8E6" },
+  alto: { label: "Plazo vencido", color: "#D93025", bg: "#FCE8E6" },
+  medio: { label: "Sin registrar", color: "#EA8600", bg: "#FEF7E0" },
+  aviso: { label: "Por vencer", color: "#5F6368", bg: "#F1F3F4" },
+};
+
+function RedPanel({ session }) {
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [orden, setOrden] = useState("riesgo");
+
+  useEffect(() => {
+    let vivo = true;
+    api.panelRed()
+      .then((d) => { if (vivo) setDatos(d); })
+      .catch((e) => { if (vivo) setError(e?.error || "No se pudo cargar el panel."); })
+      .finally(() => { if (vivo) setCargando(false); });
+    return () => { vivo = false; };
+  }, []);
+
+  if (cargando) return <div style={{ color: C.textSoft }} className="text-sm">Cargando el panel…</div>;
+  if (error) return <div style={{ color: C.urgent }} className="text-sm">{error}</div>;
+  if (!datos) return null;
+
+  const { totales: T, establecimientos: E, alertas } = datos;
+
+  // Por defecto ordenados por riesgo, no alfabéticamente: lo que importa es qué colegio
+  // necesita atención hoy, no cuál viene primero en el abecedario.
+  const puntaje = (e) => e.riesgoVitalSinAcuse * 1000 + e.plazosVencidos * 100 + (e.enSilencio ? 50 : 0) + e.plazosPorVencer;
+  const lista = [...E].sort((a, b) => (orden === "riesgo" ? puntaje(b) - puntaje(a) : a.nombre.localeCompare(b.nombre)));
+
+  const sinNada = T.casosActivos === 0 && T.establecimientos > 0;
+
+  return (
+    <div>
+      <PageHead
+        title={datos.red?.nombre || "Panel de la red"}
+        subtitle={`${T.establecimientos} establecimiento(s) · ${T.estudiantes.toLocaleString("es-CL")} estudiantes`}
+        right={<Toolbar onPrint={() => window.print()} />}
+      />
+
+      {/* Lo primero es la exposición legal, no el volumen. */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+        <StatCard label="Plazos vencidos" value={T.plazosVencidos} color={T.plazosVencidos ? C.urgent : C.ok} />
+        <StatCard label="Riesgo vital sin acuse" value={T.riesgoVitalSinAcuse} color={T.riesgoVitalSinAcuse ? C.urgent : C.ok} />
+        <StatCard label="Colegios sin registrar" value={T.enSilencio} color={T.enSilencio ? C.warn : C.ok} />
+        <StatCard label="Casos activos" value={T.casosActivos} color={C.ink} />
+        <StatCard label="Familias contactables" value={T.cobertura.pct + "%"} color={T.cobertura.pct < 50 ? C.warn : C.ok} />
+      </div>
+
+      {/* Un panel en cero se lee como "todo en orden", y casi nunca lo es. Se dice. */}
+      {sinNada && (
+        <div style={{ background: "#FEF7E0", border: `1px solid ${C.cardBorder}`, color: C.warn }} className="rounded-lg px-4 py-3 mb-5 text-xs leading-relaxed">
+          <b>No hay ningún caso activo en la red.</b> Conviene mirarlo con cuidado: un colegio sin
+          casos registrados no es necesariamente un colegio sin problemas de convivencia — puede
+          ser un colegio que no está registrando. La columna «Sin registrar hace» de abajo es la
+          que distingue una cosa de la otra.
+        </div>
+      )}
+
+      {alertas.length > 0 && (
+        <div className="mb-5">
+          <Section icon={AlertTriangle} title={`Requieren atención (${alertas.length})`}>
+            <div className="flex flex-col gap-1.5">
+              {alertas.slice(0, 40).map((a, i) => {
+                const n = NIVEL_ALERTA[a.nivel] || NIVEL_ALERTA.aviso;
+                return (
+                  <div key={i} style={{ background: n.bg }} className="rounded-lg px-3 py-2 flex items-center gap-3 flex-wrap">
+                    <span style={{ color: n.color, ...mono }} className="text-[10px] uppercase tracking-widest shrink-0 w-28">{n.label}</span>
+                    <span style={{ color: C.ink }} className="text-sm font-medium">{a.establecimiento}</span>
+                    <span style={{ color: C.textSoft }} className="text-xs">{a.texto}</span>
+                  </div>
+                );
+              })}
+              {alertas.length > 40 && <div style={{ color: C.textSoft }} className="text-xs px-3">…y {alertas.length - 40} más.</div>}
+            </div>
+          </Section>
+        </div>
+      )}
+
+      <Section icon={Building2} title="Establecimientos de la red">
+        <div className="flex items-center gap-2 mb-3">
+          <span style={{ color: C.textSoft }} className="text-xs">Ordenar por:</span>
+          <Btn variant={orden === "riesgo" ? "solid" : "ghost"} onClick={() => setOrden("riesgo")}>Riesgo</Btn>
+          <Btn variant={orden === "nombre" ? "solid" : "ghost"} onClick={() => setOrden("nombre")}>Nombre</Btn>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ color: C.textSoft, borderBottom: `1px solid ${C.cardBorder}` }} className="text-left text-[11px] uppercase tracking-wider">
+                <th className="py-2 pr-3">Establecimiento</th>
+                <th className="py-2 px-2 text-right">Estudiantes</th>
+                <th className="py-2 px-2 text-right">Casos activos</th>
+                <th className="py-2 px-2 text-right">Plazos vencidos</th>
+                <th className="py-2 px-2 text-right">Por vencer</th>
+                <th className="py-2 px-2 text-right">Sin registrar hace</th>
+                <th className="py-2 pl-2 text-right">Contactables</th>
+              </tr>
+            </thead>
+            <tbody style={{ fontVariantNumeric: "tabular-nums" }}>
+              {lista.map((e) => (
+                <tr key={e.id} style={{ borderBottom: `1px solid ${C.cardBorder}` }}>
+                  <td className="py-2.5 pr-3">
+                    <div style={{ color: C.ink }} className="font-medium">{e.nombre}</div>
+                    <div style={{ color: C.textSoft }} className="text-xs">
+                      {e.rbd ? `RBD ${e.rbd}` : "sin RBD"}{e.comuna ? ` · ${e.comuna}` : ""}
+                      {e.riesgoVitalSinAcuse > 0 && <b style={{ color: C.urgent }}> · {e.riesgoVitalSinAcuse} riesgo vital sin acuse</b>}
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: C.text }}>{e.estudiantes.toLocaleString("es-CL")}</td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: C.text }}>{e.casosActivos}</td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: e.plazosVencidos ? C.urgent : C.textSoft, fontWeight: e.plazosVencidos ? 600 : 400 }}>{e.plazosVencidos || "—"}</td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: e.plazosPorVencer ? C.warn : C.textSoft }}>{e.plazosPorVencer || "—"}</td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: e.enSilencio ? C.warn : C.textSoft, fontWeight: e.enSilencio ? 600 : 400 }}>
+                    {e.ultimoRegistro ? `${e.diasSinRegistrar} días` : "nunca"}
+                  </td>
+                  <td className="py-2.5 pl-2 text-right" style={{ color: e.cobertura.pct < 50 ? C.warn : C.text }}>
+                    {e.cobertura.pct}% <span style={{ color: C.textSoft }} className="text-xs">({e.cobertura.conCorreo}/{e.cobertura.total})</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ color: C.textSoft }} className="text-[11px] mt-3 leading-relaxed">
+          «Sin registrar hace» cuenta desde el último caso abierto en ese establecimiento; se marca
+          en naranja pasados {datos.diasSilencio} días. Este panel muestra únicamente cifras
+          agregadas: no incluye nombres, RUN ni relatos de estudiantes. Para el detalle de un caso
+          hay que pedírselo al establecimiento.
+        </p>
+      </Section>
+
+      <div className="mt-4">
+        <Section icon={ClipboardCheck} title="Medidas comprometidas en la red">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard label="Pendientes" value={T.medidas.pendiente} color={T.medidas.pendiente ? C.warn : C.textSoft} />
+            <StatCard label="En curso" value={T.medidas.en_curso} color={C.ink} />
+            <StatCard label="Cumplidas" value={T.medidas.cumplida} color={C.ok} />
+            <StatCard label="Incumplidas" value={T.medidas.incumplida} color={T.medidas.incumplida ? C.urgent : C.textSoft} />
+          </div>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+/* Carcasa del panel de red. Deliberadamente sencilla: una cuenta de red tiene una sola
+   pantalla, porque tiene una sola función. */
+function RedApp({ session, setSession, logout }) {
+  const [sec2fa, setSec2fa] = useState(false);
+  return (
+    <div style={{ background: C.appBg, minHeight: "100vh" }} className="flex">
+      {sec2fa && <Security2FA session={session} setSession={setSession} onClose={() => setSec2fa(false)} />}
+      <aside style={{ background: C.adminSoft, borderRight: `1px solid ${C.cardBorder}` }} className="w-72 shrink-0 flex flex-col h-screen sticky top-0 print:hidden">
+        <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
+          <div style={{ background: C.admin }} className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Network size={17} color="#fff" /></div>
+          <div>
+            <div style={{ ...serif, color: C.admin }} className="text-base leading-tight">Panel de red</div>
+            <div style={{ ...mono, color: C.textSoft }} className="text-[10px] tracking-widest uppercase">Monitoreo</div>
+          </div>
+        </div>
+        <nav className="flex-1 px-3">
+          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm"
+            style={{ background: "#fff", border: `1px solid ${C.admin}`, color: C.admin, fontWeight: 600 }}>
+            <LayoutGrid size={16} /> Panel de monitoreo
+          </div>
+        </nav>
+        <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+          <div className="px-2 pt-3 pb-2">
+            <div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-widest">Sesión</div>
+            <div style={{ color: C.admin }} className="text-sm font-medium">{session.name}</div>
+          </div>
+          <button onClick={() => setSec2fa(true)} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: session.totpEnabled ? C.ok : C.text }}><Shield size={16} /> Seguridad (2FA){session.totpEnabled ? " ✓" : ""}</button>
+          <button onClick={logout} className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm hover:bg-white/60 transition" style={{ color: C.text }}><LogOut size={16} /> Cerrar sesión</button>
+        </div>
+      </aside>
+      <main className="flex-1 p-6 sm:p-10 min-w-0"><RedPanel session={session} /></main>
+    </div>
+  );
+}
+
+const TIPOS_RED = {
+  slep: "Servicio Local de Educación Pública (SLEP)",
+  municipal: "Corporación / DAEM municipal",
+  fundacion: "Fundación",
+  particular: "Sostenedor particular",
+  otro: "Otro",
+};
+
+/* Redes de establecimientos.
+   Hasta ahora el campo "sostenedor" de un colegio era texto libre: se mostraba en pantalla y
+   no agrupaba nada, así que la plataforma solo sabía de dos alcances —un colegio o todos—.
+   Una red es el de en medio, y es lo que permite que la encargada de convivencia de un SLEP
+   monitoree los suyos sin ver los de nadie más. */
+function AdminRedes({ establishments, setEstablishments }) {
+  const [redes, setRedes] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [msg, setMsg] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [tipo, setTipo] = useState("slep");
+  const [codigo, setCodigo] = useState("");
+  const [region, setRegion] = useState("");
+  // Red cuya composición se está editando, y la selección en curso.
+  const [editando, setEditando] = useState(null);
+  const [sel, setSel] = useState(new Set());
+  const [guardando, setGuardando] = useState(false);
+  const inpS = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  const recargar = () => api.listRedes().then(setRedes).catch(() => {}).finally(() => setCargando(false));
+  useEffect(() => { recargar(); }, []);
+
+  async function crear() {
+    if (!nombre.trim()) return;
+    setMsg("");
+    try {
+      await api.createRed({ nombre, tipo, codigo: codigo || null, region: region || null });
+      setNombre(""); setCodigo(""); setRegion("");
+      setMsg("Red creada.");
+      recargar();
+    } catch (e) { setMsg(e?.error || "No se pudo crear la red."); }
+  }
+
+  function abrirComposicion(red) {
+    setEditando(red);
+    setSel(new Set(establishments.filter((e) => e.redId === red.id).map((e) => e.id)));
+    setMsg("");
+  }
+
+  async function guardarComposicion() {
+    setGuardando(true); setMsg("");
+    try {
+      const r = await api.setRedEstablecimientos(editando.id, [...sel]);
+      setMsg(`${editando.nombre}: ${r.total} establecimiento(s) — entran ${r.entran}, salen ${r.salen}.`);
+      setEditando(null);
+      // La composición cambió en el servidor: se refleja en el estado local para que la
+      // próxima vez que se abra el diálogo estén marcados los colegios correctos.
+      const asignados = new Set(sel);
+      setEstablishments((prev) => prev.map((e) => {
+        if (asignados.has(e.id)) return { ...e, redId: editando.id };
+        // Solo se despega el que salió de ESTA red; los de otras redes no se tocan.
+        if (e.redId === editando.id) return { ...e, redId: null };
+        return e;
+      }));
+      recargar();
+    } catch (e) { setMsg(e?.error || "No se pudo guardar la composición."); }
+    setGuardando(false);
+  }
+
+  // Un colegio pertenece a una sola red: si ya está en otra, se advierte antes de moverlo.
+  const otraRed = (e) => e.redId && editando && e.redId !== editando.id;
+
+  return (
+    <div>
+      <PageHead title="Redes de establecimientos" subtitle="Agrupa colegios bajo un mismo sostenedor: un SLEP, una corporación municipal, una fundación." />
+
+      <Section icon={Network} title="Crear una red">
+        <div className="flex flex-col gap-3 max-w-2xl">
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre de la red (ej: SLEP Santiago Centro)" className="rounded-md p-2.5 text-sm" style={inpS} />
+          <div className="grid grid-cols-2 gap-3">
+            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="rounded-md p-2.5 text-sm" style={inpS}>
+              {Object.entries(TIPOS_RED).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Región" className="rounded-md p-2.5 text-sm" style={inpS} />
+          </div>
+          <input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Código o RUT del sostenedor (opcional, único)" className="rounded-md p-2.5 text-sm" style={inpS} />
+          <div><Btn accent={C.admin} onClick={crear}><Plus size={15} /> Crear red</Btn></div>
+        </div>
+      </Section>
+
+      <div className="mt-4">
+        <Section icon={Building} title={`Redes registradas (${redes.length})`}>
+          {cargando && <div style={{ color: C.textSoft }} className="text-xs">Cargando…</div>}
+          {!cargando && !redes.length && <div style={{ color: C.textSoft }} className="text-xs">Todavía no hay ninguna red. Crea una arriba y después asígnale sus colegios.</div>}
+          <div className="flex flex-col gap-2">
+            {redes.map((r) => (
+              <div key={r.id} style={{ border: `1px solid ${C.cardBorder}`, background: "#fff" }} className="rounded-lg px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div style={{ color: C.ink }} className="text-sm font-medium">{r.nombre}</div>
+                  <div style={{ color: C.textSoft }} className="text-xs">
+                    {TIPOS_RED[r.tipo] || r.tipo}{r.region ? ` · ${r.region}` : ""}{r.codigo ? ` · ${r.codigo}` : ""}
+                    {" · "}<b>{r.establecimientos}</b> establecimiento(s){r.usuarios ? ` · ${r.usuarios} cuenta(s)` : ""}
+                  </div>
+                </div>
+                <Btn variant="ghost" onClick={() => abrirComposicion(r)}><Building2 size={15} /> Elegir sus colegios</Btn>
+              </div>
+            ))}
+          </div>
+          {msg && <div style={{ color: /No se/.test(msg) ? C.urgent : C.ok }} className="text-xs mt-3">{msg}</div>}
+        </Section>
+      </div>
+
+      {editando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(32,33,36,.45)" }} onClick={() => setEditando(null)}>
+          <div onClick={(ev) => ev.stopPropagation()} style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-xl w-full max-w-xl max-h-[85vh] flex flex-col">
+            <div className="px-5 pt-5 pb-3">
+              <div style={{ ...serif, color: C.ink }} className="text-lg">Colegios de {editando.nombre}</div>
+              <div style={{ color: C.textSoft }} className="text-xs mt-1 leading-relaxed">
+                Marca los establecimientos que componen la red. Se guarda exactamente lo que quede marcado.
+                Quien tenga una cuenta de esta red pasará a ver <b>estos</b> colegios, y solo estos.
+              </div>
+            </div>
+            <div className="px-5 flex-1 overflow-y-auto flex flex-col gap-1 pb-2">
+              {establishments.map((e) => (
+                <label key={e.id} className="flex items-start gap-2.5 px-2 py-2 rounded-lg cursor-pointer hover:bg-black/[.03]">
+                  <input type="checkbox" className="mt-0.5" checked={sel.has(e.id)}
+                    onChange={(ev) => { const n = new Set(sel); ev.target.checked ? n.add(e.id) : n.delete(e.id); setSel(n); }} />
+                  <span>
+                    <span style={{ color: C.ink }} className="text-sm">{e.name}</span>
+                    <span style={{ color: C.textSoft }} className="text-xs block">
+                      {e.rbd ? `RBD ${e.rbd}` : "sin RBD"}{e.comuna ? ` · ${e.comuna}` : ""}
+                      {otraRed(e) && <b style={{ color: C.warn }}> · hoy pertenece a otra red</b>}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="px-5 py-4 flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+              <div style={{ color: C.textSoft }} className="text-xs">{sel.size} marcado(s)</div>
+              <div className="flex gap-2">
+                <Btn variant="ghost" onClick={() => setEditando(null)} disabled={guardando}>Cancelar</Btn>
+                <Btn accent={C.admin} onClick={guardarComposicion} disabled={guardando}>{guardando ? "Guardando…" : "Guardar composición"}</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ADMIN_NAV = {
   dashboard: { label: "Panel global", icon: LayoutGrid },
   facturacion: { label: "Facturación y pagos", icon: Wallet },
   establecimientos: { label: "Establecimientos", icon: Building2 },
+  redes: { label: "Redes y SLEP", icon: Network },
   instituciones: { label: "Instituciones", icon: Network },
   difusion: { label: "Difusión", icon: Megaphone },
   metricas: { label: "Métricas por institución", icon: BarChart3 },
@@ -5818,6 +6203,7 @@ function AdminApp(props) {
         {view === "dashboard" && <AdminDashboard {...props} />}
         {view === "facturacion" && <AdminBilling {...props} />}
         {view === "establecimientos" && <AdminEstablishments {...props} />}
+        {view === "redes" && <AdminRedes {...props} />}
         {view === "instituciones" && <AdminInstitutions {...props} />}
         {view === "difusion" && <AdminBroadcast {...props} />}
         {view === "metricas" && <AdminMetrics {...props} />}

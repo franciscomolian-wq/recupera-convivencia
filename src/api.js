@@ -194,6 +194,15 @@ export const api = {
   createEstablishment: (e) => request("/api/establishments", { method: "POST", body: e, auth: true }),
   updateEstablishment: (id, e) => request(`/api/establishments/${id}`, { method: "PATCH", body: e, auth: true }),
 
+  // --- Redes de establecimientos (SLEP, corporación municipal, fundación) ---
+  listRedes: () => request("/api/redes", { auth: true }),
+  createRed: (r) => request("/api/redes", { method: "POST", body: r, auth: true }),
+  updateRed: (id, r) => request(`/api/redes/${id}`, { method: "PATCH", body: r, auth: true }),
+  // Reemplaza la composición completa: se guarda exactamente lo que la pantalla mostraba.
+  setRedEstablecimientos: (id, establishmentIds) =>
+    request(`/api/redes/${id}/establecimientos`, { method: "PUT", body: { establishmentIds }, auth: true }),
+  panelRed: (redId) => request("/api/redes/panel" + (redId ? "?redId=" + encodeURIComponent(redId) : ""), { auth: true }),
+
   // --- Instituciones de derivación ---
   listInstitutions: () => request("/api/institutions", { auth: true }),
   createInstitution: (i) => request("/api/institutions", { method: "POST", body: i, auth: true }),

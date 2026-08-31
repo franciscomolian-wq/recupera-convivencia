@@ -334,6 +334,10 @@ export const ROLES = {
   coordinador: { label: "Coordinador/a de Convivencia", scope: "admin" },
   director: { label: "Director/a", scope: "admin" },
   sostenedor: { label: "Sostenedor", scope: "audit" },
+  // Alcance de red: ve los establecimientos de su red y ninguno más, y solo en cifras.
+  // El "scope" sigue siendo audit —lectura— porque lo que cambia no es qué puede hacer sino
+  // sobre cuántos colegios, y eso lo decide el servidor (src/lib/alcance.js), nunca el navegador.
+  redConvivencia: { label: "Encargado/a de Convivencia de la Red", scope: "audit" },
   superintendencia: { label: "Superintendencia de Educación", scope: "audit" },
   inspectoria: { label: "Inspectoría General", scope: "admin" },
   pie: { label: "PIE (Programa de Integración Escolar)", scope: "limited" },
