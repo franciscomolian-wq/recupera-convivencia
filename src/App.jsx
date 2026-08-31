@@ -6422,10 +6422,29 @@ function AdminBilling({ establishments, setEstablishments }) {
   );
 }
 
-function AdminEstablishments({ establishments }) {
+function AdminEstablishments({ establishments, setEstablishments }) {
+  // Confirmación antes de eliminar, y el resultado a la vista. El servidor solo acepta
+  // eliminar establecimientos vacíos, así que lo habitual aquí es el rechazo explicando qué
+  // contiene — que es información útil por sí sola.
+  const [porBorrar, setPorBorrar] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [borrando, setBorrando] = useState(false);
+
+  async function borrar() {
+    setBorrando(true); setMsg("");
+    try {
+      await api.deleteEstablishment(porBorrar.id);
+      setEstablishments((prev) => prev.filter((x) => x.id !== porBorrar.id));
+      setMsg(`«${porBorrar.name}» eliminado.`);
+      setPorBorrar(null);
+    } catch (err) { setMsg(err?.error || "No se pudo eliminar."); }
+    setBorrando(false);
+  }
+
   return (
     <div>
       <PageHead title="Establecimientos" subtitle="Instituciones registradas en la plataforma." right={<Toolbar onPrint={printView} onExport={() => exportJSON(establishments, "establecimientos.json")} />} />
+      {msg && <div style={{ background: /No se|no está vacío/.test(msg) ? "#FCE8E6" : "#E6F4EA", color: /No se|no está vacío/.test(msg) ? C.urgent : C.ok }} className="rounded-lg px-3 py-2 mb-3 text-xs leading-relaxed">{msg}</div>}
       <div className="flex flex-col gap-2">
         {establishments.map((e) => (
           <div key={e.id} style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 flex items-center justify-between gap-3 flex-wrap">
@@ -6434,10 +6453,28 @@ function AdminEstablishments({ establishments }) {
               <span style={{ color: C.textSoft }}>Activos: <b style={{ color: C.ink }}>{e.activos}</b></span>
               <span style={{ color: C.textSoft }}>Vencidos: <b style={{ color: C.urgent }}>{e.vencidos}</b></span>
               <span style={{ color: C.textSoft }}>Cumpl.: <b style={{ color: C.ok }}>{e.cumplimiento}%</b></span>
+              <button onClick={() => { setPorBorrar(e); setMsg(""); }} title="Eliminar establecimiento" style={{ color: C.urgent }}><Trash2 size={14} /></button>
             </div>
           </div>
         ))}
       </div>
+
+      {porBorrar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(32,33,36,.45)" }} onClick={() => setPorBorrar(null)}>
+          <div onClick={(ev) => ev.stopPropagation()} style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-xl w-full max-w-md p-5">
+            <div style={{ ...serif, color: C.ink }} className="text-lg mb-2">Eliminar «{porBorrar.name}»</div>
+            <p style={{ color: C.text }} className="text-xs leading-relaxed mb-4">
+              Solo se pueden eliminar establecimientos <b>vacíos</b>. Si tiene estudiantes, casos o
+              cuentas, la plataforma se va a negar y te dirá qué contiene — no borra nada en cascada,
+              a propósito: un establecimiento con expedientes se vacía a conciencia, no con un botón.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Btn variant="ghost" onClick={() => setPorBorrar(null)} disabled={borrando}>Cancelar</Btn>
+              <Btn accent={C.urgent} onClick={borrar} disabled={borrando}>{borrando ? "Eliminando…" : "Eliminar"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

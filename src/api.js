@@ -193,6 +193,9 @@ export const api = {
   quitarInsignia: (id) => request(`/api/establishments/${id}/insignia`, { method: "DELETE", auth: true }),
   createEstablishment: (e) => request("/api/establishments", { method: "POST", body: e, auth: true }),
   updateEstablishment: (id, e) => request(`/api/establishments/${id}`, { method: "PATCH", body: e, auth: true }),
+  // Solo elimina establecimientos VACÍOS: si tiene un estudiante, un caso o una cuenta, el
+  // servidor se niega y dice qué encontró.
+  deleteEstablishment: (id) => request(`/api/establishments/${id}`, { method: "DELETE", auth: true }),
 
   // --- Redes de establecimientos (SLEP, corporación municipal, fundación) ---
   listRedes: () => request("/api/redes", { auth: true }),
