@@ -393,10 +393,31 @@ function sigeNivel(descGrado) {
   if (/adult/.test(d)) return "adultos";
   return "basica";
 }
+/* SIGE nombra los niveles de párvulo como "1er nivel de Transición (Pre-kinder)" y
+   "2° nivel de Transición (Kinder)". Sacar el primer número de ahí devolvía "1°" y "2°", que
+   es lo mismo que devuelve para 1° y 2° básico: los niños de Pre-kínder terminaban archivados
+   dentro del curso 1°A junto a los de básica, y los de Kínder dentro de 2°A.
+   No era cosmético — en Colegio Pablo de Tarso quedaron 16 y 21 niños en el curso equivocado,
+   y el curso es lo que define qué ve el profesor jefe y a quién alcanza una medida. */
 function sigeGrado(descGrado) {
+  const d = stripAccents(descGrado);
+  if (/transic|pre.?kinder|kinder|parvul|sala cuna|medio menor|medio mayor|\bnt1\b|\bnt2\b/.test(d)) {
+    if (/pre.?kinder|1er|primer|\bnt1\b|medio menor/.test(d)) return "Pre-kínder";
+    if (/kinder|2do|segundo|\bnt2\b|medio mayor/.test(d)) return "Kínder";
+    return titleCaseName(descGrado);
+  }
   const m = String(descGrado || "").match(/(\d+)\s*°?/);
   if (m) return m[1] + "°";
   return titleCaseName(descGrado);
+}
+
+// El curso que se muestra. Los grados numéricos van pegados —"1°A", como se escriben en un
+// colegio—; los de párvulo llevan espacio, porque "Pre-kínderA" no lo lee nadie.
+function sigeCurso(grado, letra) {
+  const g = String(grado || "").trim();
+  const l = String(letra || "").trim().toUpperCase();
+  if (!g) return l || null;
+  return /°$/.test(g) ? g + l : (l ? g + " " + l : g);
 }
 /* SIGE exporta en Latin-1 (ISO-8859-1). Si se lee como UTF-8, los apellidos con tilde y con
    ñ llegan rotos a la base y ya no calzan con nada. */
@@ -449,6 +470,7 @@ function parseSigeRows(rows) {
       rut: run ? `${run}-${dv || ""}`.replace(/-$/, "") : "",
       nivel: sigeNivel(desc),
       grado: sigeGrado(desc),
+      curso: sigeCurso(sigeGrado(desc), iLetra >= 0 ? c[iLetra] : ""),
       letra: (iLetra >= 0 ? c[iLetra] : "").trim().toUpperCase(),
       genero: (iGen >= 0 ? c[iGen] : "").trim().toUpperCase().slice(0, 1),
       retirado: !!retirado,
