@@ -411,13 +411,23 @@ function sigeGrado(descGrado) {
   return titleCaseName(descGrado);
 }
 
-// El curso que se muestra. Los grados numéricos van pegados —"1°A", como se escriben en un
-// colegio—; los de párvulo llevan espacio, porque "Pre-kínderA" no lo lee nadie.
-function sigeCurso(grado, letra) {
+/* La etiqueta del curso, y lleva el nivel dentro a propósito.
+   Un liceo con básica y media tiene un 1° de cada uno, y escribir los dos como "1°A" los
+   confunde en todo lo que agrupa por esa etiqueta: la ficha del caso, la columna «curso» del
+   informe dinámico, el «casos por curso» de la presentación. En el Liceo Poeta Federico
+   García Lorca eso dejaba 124 estudiantes de básica compartiendo cuatro etiquetas con 130 de
+   media — un niño de 3° básico y uno de 3° medio, ambos como "3°A".
+   (El módulo Cursos no se veía afectado: navega por nivel, grado y letra por separado.)
+   La forma elegida es la que usan los colegios: "1° básico A", "1° medio A", "Pre-kínder A". */
+const NIVEL_EN_CURSO = { basica: "básico", media: "medio", adultos: "adultos" };
+function sigeCurso(grado, letra, nivel) {
   const g = String(grado || "").trim();
   const l = String(letra || "").trim().toUpperCase();
   if (!g) return l || null;
-  return /°$/.test(g) ? g + l : (l ? g + " " + l : g);
+  // Los de párvulo ya vienen con nombre propio ("Pre-kínder"): agregarles el nivel sobraría.
+  const suf = /°$/.test(g) ? NIVEL_EN_CURSO[nivel] : null;
+  const base = suf ? g + " " + suf : g;
+  return l ? base + " " + l : base;
 }
 /* SIGE exporta en Latin-1 (ISO-8859-1). Si se lee como UTF-8, los apellidos con tilde y con
    ñ llegan rotos a la base y ya no calzan con nada. */
@@ -470,7 +480,7 @@ function parseSigeRows(rows) {
       rut: run ? `${run}-${dv || ""}`.replace(/-$/, "") : "",
       nivel: sigeNivel(desc),
       grado: sigeGrado(desc),
-      curso: sigeCurso(sigeGrado(desc), iLetra >= 0 ? c[iLetra] : ""),
+      curso: sigeCurso(sigeGrado(desc), iLetra >= 0 ? c[iLetra] : "", sigeNivel(desc)),
       letra: (iLetra >= 0 ? c[iLetra] : "").trim().toUpperCase(),
       genero: (iGen >= 0 ? c[iGen] : "").trim().toUpperCase().slice(0, 1),
       retirado: !!retirado,
