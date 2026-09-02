@@ -111,6 +111,10 @@ export const api = {
   },
   notifyCase: (id, mail) => request(`/api/cases/${id}/emails`, { method: "POST", body: mail, auth: true }),
   deriveCase: (id, deriv) => request(`/api/cases/${id}/derivations`, { method: "POST", body: deriv, auth: true }),
+  // Identificar (o desvincular) a los estudiantes de un caso ya abierto. Reemplaza la lista
+  // completa: se manda lo que debe quedar, no lo que se agrega.
+  identificarEstudiantes: (id, participants, studentId) =>
+    request(`/api/cases/${id}/estudiantes`, { method: "PATCH", body: { participants, studentId }, auth: true }),
 
   // --- Expedientes (estudiantes) ---
   listStudents: () => request("/api/students", { auth: true }),

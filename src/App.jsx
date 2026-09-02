@@ -1645,13 +1645,15 @@ function PortalApp(props) {
   // Crea el caso (y el estudiante si es nuevo) en la base de datos.
   async function persistCase(built) {
     const parts = (built.participants || []).filter((p) => p.studentId);
-    let sid = built.studentId;
-    // Si no hay estudiante vinculado NI participantes, se crea uno nuevo con los datos escritos.
-    if (!sid && parts.length === 0) {
-      const ns = await api.createStudent({ name: built.studentLabel, curso: built.curso || null, nivel: built.level || null });
-      setStudents((prev) => [...prev, apiStudentToUI(ns)]);
-      sid = ns.id;
-    }
+    const sid = built.studentId;
+    // Antes, si no había estudiante vinculado ni participantes, aquí se creaba uno con el
+    // texto de la etiqueta como nombre: "Estudiante (sin identificar aún)". Eso metía en la
+    // nómina un registro sin RUN ni curso que se veía como un alumno más, quedaba fuera de
+    // todo lo que agrupa por curso y no calzaba con ninguna reimportación.
+    //
+    // Un caso puede empezar legítimamente sin saber de quién se trata —una denuncia anónima,
+    // algo visto de lejos—, y el modelo lo admite. Ahora se guarda tal cual, sin estudiante, y
+    // se identifica desde la propia ficha cuando se sepa.
     const created = await api.createCase({
       code: built.id, typeKey: built.typeKey, studentLabel: built.studentLabel,
       level: built.level, relato: built.relato, curso: built.curso,
@@ -1699,7 +1701,7 @@ function PortalApp(props) {
         {view === "documental" && <DocumentalPage documents={props.documents} setDocuments={props.setDocuments} cases={cases} role={pageRole} />}
         {view === "gestion" && <GestionRedesPage gestiones={props.gestiones} setGestiones={props.setGestiones} institutions={props.institutions} cases={cases} role={pageRole} />}
         {view === "alertas" && <AlertsPage cases={cases} students={students} gestiones={props.gestiones} onOpenCase={openCase} onOpenStudent={openStudent} onGo={setView} />}
-        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={pageRole} roleKey={session.role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
+        {view === "caso" && selectedCase && <CaseDetail c={selectedCase} role={pageRole} roleKey={session.role} setCases={setCases} templates={props.emailTemplates} institutions={props.institutions} students={students} student={students.find((s) => s.id === selectedCase.studentId)} onOpenStudent={openStudent} onBack={() => setView(role.scope === "family" ? "dashboard" : "casos")} />}
         {view === "reportes" && <ReportsPage cases={cases} setCases={setCases} students={students} />}
         {view === "planpme" && <PlanPMEPage docs={props.docs} setDocs={props.setDocs} acciones={props.acciones} setAcciones={props.setAcciones} role={pageRole} />}
         {view === "formatos" && <FormatosPage />}
@@ -4265,7 +4267,93 @@ function ProtocolsPage({ protocols, setProtocols, role }) {
 }
 
 /* ------------------------- CASE DETAIL ---------------------------- */
-function CaseDetail({ c, role, roleKey, setCases, templates, institutions, student, onOpenStudent, onBack }) {
+/* Identificar a los estudiantes de un caso ya abierto.
+   Un caso puede empezar sin saber de quién se trata —una denuncia anónima, algo visto de
+   lejos— y eso es legítimo. Lo que no puede es quedarse así para siempre: mientras no haya
+   estudiante, lo actuado no entra en el expediente de nadie. */
+function IdentificarEstudiantes({ caso, students, onClose, onHecho }) {
+  const [parts, setParts] = useState(() => (caso.participants || []).map((p) => ({ studentId: p.studentId, name: p.name, curso: p.curso, role: p.role })));
+  const [q, setQ] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const inp = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+
+  const ya = new Set(parts.map((p) => p.studentId));
+  const query = q.trim().toLowerCase();
+  const encontrados = students
+    .filter((s) => !ya.has(s.id))
+    .filter((s) => !query || `${s.name} ${s.curso || ""} ${s.rut || ""}`.toLowerCase().includes(query))
+    .slice(0, 30);
+
+  async function guardar() {
+    setGuardando(true); setError("");
+    try {
+      const actualizado = await api.identificarEstudiantes(
+        caso.id,
+        parts.map((p) => ({ studentId: p.studentId, role: p.role })),
+        parts.find((p) => p.role === "afectado")?.studentId || parts[0]?.studentId || null,
+      );
+      onHecho(apiCaseToUI(actualizado));
+    } catch (e) { setError(e?.error || "No se pudo guardar."); setGuardando(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(32,33,36,.45)" }} onClick={onClose}>
+      <div onClick={(ev) => ev.stopPropagation()} style={{ background: "#fff", border: `1px solid ${C.cardBorder}` }} className="rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="px-5 pt-5 pb-3">
+          <div style={{ ...serif, color: C.ink }} className="text-lg">Identificar estudiantes</div>
+          <div style={{ color: C.textSoft }} className="text-xs mt-1 leading-relaxed">
+            Caso <b>{caso.id}</b>. Al vincularlos, lo actuado queda también en el expediente de cada
+            uno. Puedes dejarlo sin nadie si todavía no se sabe.
+          </div>
+        </div>
+
+        {parts.length > 0 && (
+          <div className="px-5 pb-3 flex flex-col gap-2">
+            {parts.map((p) => (
+              <div key={p.studentId} className="flex items-center gap-2 flex-wrap">
+                <select value={p.role} onChange={(e) => setParts((prev) => prev.map((x) => (x.studentId === p.studentId ? { ...x, role: e.target.value } : x)))}
+                  className="rounded-md p-1.5 text-xs" style={inp}>
+                  <option value="afectado">Afectado/a</option>
+                  <option value="involucrado">Involucrado/a</option>
+                  <option value="testigo">Testigo</option>
+                </select>
+                <span className="text-sm flex-1" style={{ color: C.ink }}>{p.name}{p.curso ? <span style={{ color: C.textSoft }} className="text-xs"> · {p.curso}</span> : null}</span>
+                <button onClick={() => setParts((prev) => prev.filter((x) => x.studentId !== p.studentId))} style={{ color: C.urgent }} className="text-xs">Quitar</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="px-5">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar estudiante por nombre, RUT o curso…" className="w-full rounded-md p-2.5 text-sm" style={inp} />
+        </div>
+        <div className="px-5 flex-1 overflow-y-auto py-2 flex flex-col gap-1">
+          {students.length === 0 && <div style={{ color: C.textSoft }} className="text-xs">No hay estudiantes en la nómina todavía.</div>}
+          {students.length > 0 && encontrados.length === 0 && <div style={{ color: C.textSoft }} className="text-xs">Sin coincidencias.</div>}
+          {encontrados.map((s) => (
+            <button key={s.id} onClick={() => { setParts((prev) => [...prev, { studentId: s.id, name: s.name, curso: s.curso || "", role: prev.length === 0 ? "afectado" : "involucrado" }]); setQ(""); }}
+              className="text-left px-2 py-1.5 rounded-lg hover:bg-black/[.04]">
+              <span style={{ color: C.ink }} className="text-sm">{s.name}</span>
+              <span style={{ color: C.textSoft }} className="text-xs"> · {s.curso || "sin curso"}{s.rut ? " · " + s.rut : ""}</span>
+            </button>
+          ))}
+        </div>
+
+        {error && <div style={{ background: "#FCE8E6", color: C.urgent }} className="mx-5 text-xs rounded-lg px-3 py-2">{error}</div>}
+        <div className="px-5 py-4 flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${C.cardBorder}` }}>
+          <div style={{ color: C.textSoft }} className="text-xs">{parts.length} vinculado(s)</div>
+          <div className="flex gap-2">
+            <Btn variant="ghost" onClick={onClose} disabled={guardando}>Cancelar</Btn>
+            <Btn onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CaseDetail({ c, role, roleKey, setCases, templates, institutions, students = [], student, onOpenStudent, onBack }) {
   const isFamily = role.scope === "family";
   const isAudit = role.scope === "audit";
   const canDelete = ["superadmin", "coordinador", "director"].includes(roleKey);
@@ -4275,6 +4363,7 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
   const [evType, setEvType] = useState({});
   const [subiendoEv, setSubiendoEv] = useState(null); // paso cuyo archivo se está subiendo
   const [notice, setNotice] = useState(null); // {ok, text}
+  const [identificarAbierto, setIdentificarAbierto] = useState(false);
   const emails = c.emails || [];
 
   function update(fn) { setCases((prev) => prev.map((x) => (x.id === c.id ? fn(x) : x))); }
@@ -4396,6 +4485,37 @@ function CaseDetail({ c, role, roleKey, setCases, templates, institutions, stude
         <span style={{ color: C.textSoft }} className="text-sm">{c.studentLabel} · {LEVELS[c.level] || "Nivel no indicado"}</span>
         {student && onOpenStudent && (!c.participants || c.participants.length === 0) && <button onClick={() => onOpenStudent(student.id)} style={{ color: C.primary }} className="text-xs flex items-center gap-1 print:hidden"><ClipboardList size={13} /> Ver expediente</button>}
       </div>
+
+      {/* Sin estudiante identificado. Se muestra como una tarea pendiente y no como un error:
+          abrir un caso sin saber de quién se trata es normal, dejarlo así para siempre no. */}
+      {!isFamily && !c.studentId && (!c.participants || c.participants.length === 0) && (
+        <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-lg p-3.5 mb-4 print:hidden">
+          <div style={{ color: C.ink }} className="text-sm font-medium flex items-center gap-1.5">
+            <AlertTriangle size={14} style={{ color: C.warn }} /> Sin estudiante identificado
+          </div>
+          <div style={{ color: C.text }} className="text-xs mt-1 leading-relaxed">
+            Este caso no está vinculado a ningún estudiante de la nómina, así que lo actuado no queda
+            en el expediente de nadie. Cuando se sepa de quién se trata, identifícalo aquí.
+          </div>
+          {!isAudit && !c.closed && (
+            <div className="mt-2.5"><Btn onClick={() => setIdentificarAbierto(true)}><Users size={14} /> Identificar estudiante</Btn></div>
+          )}
+        </div>
+      )}
+      {identificarAbierto && (
+        <IdentificarEstudiantes
+          caso={c} students={students}
+          onClose={() => setIdentificarAbierto(false)}
+          onHecho={(actualizado) => {
+            setIdentificarAbierto(false);
+            // Se reemplaza el caso completo con lo que devolvió el servidor: así los
+            // participantes y el estudiante principal quedan como quedaron en la base, y no
+            // como los adivinó el navegador.
+            setCases((prev) => prev.map((x) => (x.id === c.id ? actualizado : x)));
+            setNotice({ ok: true, text: "Estudiantes actualizados en el caso." });
+          }}
+        />
+      )}
       {!isFamily && c.participants && c.participants.length > 0 && (
         <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}` }} className="rounded-lg p-4 mb-4">
           <div style={{ color: C.ink }} className="text-sm font-medium mb-2">Estudiantes involucrados ({c.participants.length})</div>
