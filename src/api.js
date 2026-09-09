@@ -124,6 +124,11 @@ export const api = {
   // pide es súper administrador. Para una cuenta del colegio va en undefined y el servidor
   // usa el suyo, que es lo que impide cargar sobre un establecimiento ajeno.
   bulkStudents: (students, establishmentId) => request("/api/students/bulk", { method: "POST", body: { students, establishmentId }, auth: true }),
+  // --- Debido proceso: notificación de la medida, apelación y resolución ---
+  notificarMedida: (mid, datos) => request(`/api/students/medidas/${mid}/notificacion`, { method: "POST", body: datos, auth: true }),
+  apelarMedida: (mid, datos) => request(`/api/students/medidas/${mid}/apelaciones`, { method: "POST", body: datos, auth: true }),
+  resolverApelacion: (aid, datos) => request(`/api/students/apelaciones/${aid}`, { method: "PATCH", body: datos, auth: true }),
+
   // Registro liviano de una situación de convivencia: sin tipificación legal ni plazos.
   registrarSituacion: (datos) => request("/api/students/situaciones", { method: "POST", body: datos, auth: true }),
 

@@ -23,6 +23,7 @@ import {
 import { generarPresentacion } from "./presentacion.js";
 import {
   fmt, daysLeft, urgencyColor, buildCase, analyzeSituation, configurarFeriados, esFeriado,
+  addBusinessDays,
   exportJSON, importJSON, printView, stepHint, fillTemplate, exportCSV,
   fmtUF, fmtCLP, billing, exportExcel,
 } from "./engine.js";
@@ -1691,7 +1692,7 @@ function PortalApp(props) {
         {view === "casos" && <CaseList cases={visibleCases} onOpen={openCase} role={pageRole} />}
         {view === "expedientes" && <StudentsPage students={students} cases={cases} onOpen={openStudent} />}
         {view === "cursos" && <CoursesPage students={students} setStudents={setStudents} courseTeachers={props.courseTeachers} setCourseTeachers={props.setCourseTeachers} roleKey={session.role} permset={props.permset} onOpenStudent={openStudent} />}
-        {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
+        {view === "expediente" && selectedStudent && <StudentDetail student={selectedStudent} cases={cases} setStudents={setStudents} role={pageRole} roleKey={session.role} onOpenCase={openCase} onBack={() => setView("expedientes")} />}
         {view === "reconocimientos" && <ReconocimientosPage students={students} setStudents={setStudents} role={pageRole} roleKey={session.role} onOpenStudent={openStudent} customCats={props.reconCategories} setCustomCats={props.setReconCategories} />}
         {view === "inspectoria" && <InspectoriaPage students={students} setStudents={setStudents} role={pageRole} />}
         {view === "pie" && <PIEPage students={students} setStudents={setStudents} cases={cases} role={pageRole} />}
@@ -2602,8 +2603,337 @@ const MEDIDA_ESTADOS = {
   incumplida: { label: "Incumplida", color: "#D93025", bg: "#D9302522" },
 };
 
-function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBack }) {
+/* ===================== DEBIDO PROCESO DE LAS MEDIDAS =====================
+   Una medida disciplinaria que la familia no sabe que existe, o que conoce sin poder
+   reclamar, es una medida que no se sostiene ante la Superintendencia. La ley no pide
+   solo que la sanción sea proporcionada: pide poder demostrar que se notificó, que hubo
+   plazo para apelar, y que si se apeló resolvió alguien distinto de quien sancionó.
+   Todo eso vive dentro de la ficha de cada medida, no en un módulo aparte, porque es
+   parte de la medida y no un trámite adicional. */
+
+const VIAS_NOTIFICACION = [
+  { value: "presencial", label: "En persona, en el establecimiento" },
+  { value: "correo", label: "Por correo electrónico" },
+  { value: "carta", label: "Por carta" },
+  { value: "plataforma", label: "Por la plataforma" },
+  { value: "telefono", label: "Por teléfono" },
+];
+const VIA_CORTA = { presencial: "en persona", correo: "por correo", carta: "por carta", plataforma: "por la plataforma", telefono: "por teléfono" };
+
+const DECISIONES_APELACION = [
+  { value: "acogida", label: "Acogida", ayuda: "Se da la razón a la familia y la medida se deja sin efecto." },
+  { value: "acogida_parcial", label: "Acogida en parte", ayuda: "La medida se mantiene, pero modificada." },
+  { value: "rechazada", label: "Rechazada", ayuda: "La medida se mantiene tal como se aplicó." },
+];
+const ESTADO_APELACION = {
+  pendiente: { label: "sin resolver", bg: "#FEF7E0", color: "#EA8600" },
+  acogida: { label: "acogida", bg: "#E6F4EA", color: "#1E8E3E" },
+  acogida_parcial: { label: "acogida en parte", bg: "#E6F4EA", color: "#1E8E3E" },
+  rechazada: { label: "rechazada", bg: "#F1F3F4", color: "#5F6368" },
+};
+
+// Fecha local en AAAA-MM-DD. toISOString() convierte a UTC y en Chile eso adelanta el día
+// después de las 21:00: para un plazo legal, un día de diferencia importa.
+function isoLocal(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+const hoyISO = () => isoLocal(new Date());
+// Los feriados y los fines de semana los descuenta addBusinessDays, igual que en los plazos
+// del protocolo: el calendario del establecimiento ya está cargado en el navegador.
+function masDiasHabiles(desdeISO, dias) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desdeISO || "")) return "";
+  return isoLocal(addBusinessDays(new Date(desdeISO + "T12:00:00"), Math.max(1, Number(dias) || 1)));
+}
+const vencido = (iso) => !!iso && new Date(iso + "T23:59:59") < new Date();
+
+/* La cadena del debido proceso dentro de la ficha de una medida.
+   Se muestra siempre, incluso vacía: el vacío es justamente la información. Un bloque que
+   solo aparece cuando ya está lleno no le recuerda nada a nadie. */
+function DebidoProceso({ medida: m, readOnly, puedeResolver, onPaso }) {
+  const aps = m.apelaciones || [];
+  const ap = aps[aps.length - 1];
+  const apPendiente = ap && ap.estado === "pendiente";
+  const apVencida = apPendiente && vencido(ap.resolverHasta);
+  const linea = { color: C.textSoft };
+  const boton = { background: C.cardBg, border: `1px solid ${C.cardBorder}`, color: C.primary };
+
+  return (
+    <div style={{ borderTop: `1px dashed ${C.cardBorder}`, paddingTop: 7, marginTop: 1 }} className="flex flex-col gap-1.5 text-[11px]">
+      {!m.notificadaAt ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Gavel size={12} color={C.warn} />
+          <span style={{ color: C.warn }} className="font-medium">Sin notificar a la familia</span>
+          <span style={linea}>— mientras no conste, la medida no se sostiene ante un reclamo.</span>
+          {!readOnly && (
+            <button onClick={() => onPaso("notificar")} className="px-2 py-0.5 rounded-md print:hidden" style={boton}>Registrar notificación</button>
+          )}
+        </div>
+      ) : (
+        <div style={linea}>
+          <Gavel size={12} color={C.textSoft} className="inline mr-1 align-[-2px]" />
+          Notificada a <b style={{ color: C.ink }}>{m.notificadaA}</b> el <b style={{ color: C.ink }}>{String(m.notificadaAt).slice(0, 10)}</b>
+          {" "}{VIA_CORTA[m.notificadaVia] || m.notificadaVia}
+          {m.notificadaPor ? <> · registró {m.notificadaPor}</> : null}
+          {m.apelaHasta && (
+            <> · {vencido(m.apelaHasta)
+              ? <>plazo para apelar vencido el {m.apelaHasta}</>
+              : <span style={{ color: C.ink }}>puede apelar hasta el <b>{m.apelaHasta}</b></span>}</>
+          )}
+        </div>
+      )}
+
+      {m.notificadaAcuse && <div style={linea}>Constancia: <span style={{ color: C.ink }}>{m.notificadaAcuse}</span></div>}
+
+      {ap ? (
+        <div style={{ background: apVencida ? "#FCE8E6" : C.cardBg, border: `1px solid ${apVencida ? C.urgent : C.cardBorder}` }} className="rounded-md p-2 flex flex-col gap-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span style={{ background: ESTADO_APELACION[ap.estado]?.bg || "#F1F3F4", color: ESTADO_APELACION[ap.estado]?.color || C.textSoft }} className="text-[10px] font-medium px-2 py-0.5 rounded-full">
+              Apelación {ESTADO_APELACION[ap.estado]?.label || ap.estado}
+            </span>
+            <span style={linea}>Presentada por <b style={{ color: C.ink }}>{ap.presentadaPor}</b> el {String(ap.presentadaAt).slice(0, 10)}</span>
+            {ap.fueraDePlazo && <span style={{ color: C.warn }} className="text-[10px] font-medium">fuera de plazo</span>}
+          </div>
+          {ap.fundamento && <div style={linea}>Alega: <span style={{ color: C.ink }}>{ap.fundamento}</span></div>}
+          {apPendiente && ap.resolverHasta && (
+            <div style={{ color: apVencida ? C.urgent : C.textSoft }}>
+              {apVencida ? <>El plazo para resolver venció el <b>{ap.resolverHasta}</b>.</> : <>Hay plazo para resolver hasta el <b style={{ color: C.ink }}>{ap.resolverHasta}</b>.</>}
+            </div>
+          )}
+          {ap.resueltaAt && (
+            <div style={linea}>
+              Resuelta el <b style={{ color: C.ink }}>{String(ap.resueltaAt).slice(0, 10)}</b> por <b style={{ color: C.ink }}>{ap.resueltaPor}</b>
+              {ap.resolucion ? <> — <span style={{ color: C.ink }}>{ap.resolucion}</span></> : null}
+            </div>
+          )}
+          {apPendiente && !readOnly && (
+            puedeResolver
+              ? <div className="print:hidden mt-0.5"><button onClick={() => onPaso("resolver", ap)} className="px-2 py-0.5 rounded-md" style={{ background: C.cardBg, border: `1px solid ${C.primary}`, color: C.primary }}>Resolver la apelación</button></div>
+              : <div style={linea} className="print:hidden">La resuelve la dirección del establecimiento.</div>
+          )}
+        </div>
+      ) : (
+        !readOnly && m.notificadaAt && (
+          <div className="print:hidden">
+            <button onClick={() => onPaso("apelar")} className="px-2 py-0.5 rounded-md" style={boton}>La familia apeló</button>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+/* Los tres momentos, en un modal. Cada uno guarda contra el servidor y solo cierra si el
+   servidor confirmó: el error se muestra dentro del modal, con el formulario intacto, para
+   no perder lo escrito. */
+function DebidoProcesoModal({ medida: m, paso, apelacion, apoderado, onClose, onNotificar, onApelar, onResolver }) {
+  const campo = { background: "#fff", border: `1px solid ${C.cardBorder}`, color: C.text };
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+
+  // Notificación
+  const [nFecha, setNFecha] = useState(hoyISO());
+  const [nVia, setNVia] = useState("presencial");
+  const [nA, setNA] = useState(apoderado || "");
+  const [nAcuse, setNAcuse] = useState("");
+  const [nDias, setNDias] = useState(5);
+  const [nHasta, setNHasta] = useState(masDiasHabiles(hoyISO(), 5));
+  const [nManual, setNManual] = useState(false);
+  // Mientras nadie toque la fecha tope a mano, sigue el cálculo; en cuanto se edita, manda
+  // lo que escribió la persona. El RICE de cada colegio fija sus propios días.
+  function recalcular(fecha, dias) {
+    setNFecha(fecha); setNDias(dias);
+    if (!nManual) setNHasta(masDiasHabiles(fecha, dias));
+  }
+
+  // Apelación
+  const [aFecha, setAFecha] = useState(hoyISO());
+  const [aPor, setAPor] = useState(apoderado || "");
+  const [aFund, setAFund] = useState("");
+  const [aHasta, setAHasta] = useState(masDiasHabiles(hoyISO(), 5));
+
+  // Resolución
+  const [rEstado, setREstado] = useState("");
+  const [rTexto, setRTexto] = useState("");
+
+  const tarde = paso === "apelar" && m.apelaHasta && aFecha > m.apelaHasta;
+
+  const valido =
+    paso === "notificar" ? !!(nVia && nA.trim() && /^\d{4}-\d{2}-\d{2}$/.test(nHasta)) :
+    paso === "apelar" ? !!(aPor.trim() && aFund.trim()) :
+    !!(rEstado && rTexto.trim());
+
+  async function confirmar() {
+    if (!valido || guardando) return;
+    setGuardando(true); setError("");
+    try {
+      if (paso === "notificar") {
+        await onNotificar({ notificadaVia: nVia, notificadaA: nA.trim(), notificadaAcuse: nAcuse.trim() || null, apelaHasta: nHasta, notificadaAt: nFecha + "T12:00:00" });
+      } else if (paso === "apelar") {
+        await onApelar({ presentadaPor: aPor.trim(), fundamento: aFund.trim(), presentadaAt: aFecha + "T12:00:00", resolverHasta: aHasta || null });
+      } else {
+        await onResolver({ estado: rEstado, resolucion: rTexto.trim() });
+      }
+      onClose();
+    } catch (e) {
+      setError(e?.error || "No se pudo guardar. Revisa la conexión e inténtalo de nuevo.");
+    } finally { setGuardando(false); }
+  }
+
+  const titulo = paso === "notificar" ? "Registrar la notificación a la familia"
+    : paso === "apelar" ? "Registrar la apelación de la familia"
+    : "Resolver la apelación";
+  const etiqueta = "text-xs uppercase tracking-wide font-medium";
+
+  return (
+    <Modal title={titulo} onClose={onClose}>
+      <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3 mb-4 text-sm">
+        <div style={{ color: C.ink }}>{m.descripcion}</div>
+        <div style={{ color: C.textSoft }} className="text-xs mt-0.5">
+          {(MEASURE_TYPES.find((x) => x.value === m.tipo) || {}).label || m.tipo}
+          {m.fecha ? " · aplicada el " + m.fecha : ""}
+          {m.aplicadaPor ? " · por " + m.aplicadaPor : ""}
+        </div>
+      </div>
+
+      {paso === "notificar" && (
+        <div className="flex flex-col gap-3">
+          <p style={{ color: C.textSoft }} className="text-sm">
+            Deja constancia de <b>cuándo</b> y <b>cómo</b> se le comunicó la medida a la familia,
+            y hasta qué día puede apelar. Es lo que se pide mostrar cuando la medida se reclama.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <div className="flex-1 min-w-[140px]">
+              <label style={{ color: C.textSoft }} className={etiqueta}>Fecha de la notificación</label>
+              <input type="date" value={nFecha} max={hoyISO()} onChange={(e) => recalcular(e.target.value, nDias)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+            </div>
+            <div className="flex-1 min-w-[180px]">
+              <label style={{ color: C.textSoft }} className={etiqueta}>Cómo se notificó</label>
+              <select value={nVia} onChange={(e) => setNVia(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo}>
+                {VIAS_NOTIFICACION.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>A quién se le notificó</label>
+            <input value={nA} onChange={(e) => setNA(e.target.value)} placeholder="Nombre del apoderado o apoderada" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+          </div>
+          <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3">
+            <label style={{ color: C.textSoft }} className={etiqueta}>Plazo para apelar</label>
+            <div className="flex items-center gap-2 flex-wrap mt-1.5 text-sm" style={{ color: C.text }}>
+              <input type="number" min="1" max="30" value={nDias} onChange={(e) => { setNManual(false); recalcular(nFecha, e.target.value); }} className="rounded-md p-2 text-sm w-16" style={campo} />
+              <span>días hábiles, hasta el</span>
+              <input type="date" value={nHasta} onChange={(e) => { setNManual(true); setNHasta(e.target.value); }} className="rounded-md p-2 text-sm" style={campo} />
+            </div>
+            <p style={{ color: C.textSoft }} className="text-[11px] mt-2">
+              Se descuentan fines de semana y feriados. El número de días lo fija el reglamento
+              interno del establecimiento; si el suyo dice otra cosa, cámbielo aquí.
+            </p>
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>Constancia <span className="normal-case tracking-normal">(opcional)</span></label>
+            <textarea value={nAcuse} onChange={(e) => setNAcuse(e.target.value)} rows={2} placeholder="Firma en el libro, acuse de recibo del correo, testigo presente…" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+          </div>
+        </div>
+      )}
+
+      {paso === "apelar" && (
+        <div className="flex flex-col gap-3">
+          <p style={{ color: C.textSoft }} className="text-sm">
+            Registra el reclamo de la familia <b>tal como lo presentó</b>. Queda cifrado en el
+            expediente; el panel de red solo cuenta apelaciones, nunca muestra lo que dicen.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <div className="flex-1 min-w-[140px]">
+              <label style={{ color: C.textSoft }} className={etiqueta}>Fecha de presentación</label>
+              <input type="date" value={aFecha} max={hoyISO()} onChange={(e) => setAFecha(e.target.value)} className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+            </div>
+            <div className="flex-1 min-w-[180px]">
+              <label style={{ color: C.textSoft }} className={etiqueta}>Quién apela</label>
+              <input value={aPor} onChange={(e) => setAPor(e.target.value)} placeholder="Nombre de quien presenta" className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+            </div>
+          </div>
+          {tarde && (
+            <div style={{ background: "#FEF7E0", border: `1px solid ${C.warn}` }} className="rounded-md p-2.5 text-[13px] flex gap-2">
+              <AlertTriangle size={15} color={C.warn} className="shrink-0 mt-0.5" />
+              <span style={{ color: C.text }}>
+                El plazo para apelar venció el <b>{m.apelaHasta}</b>. Se puede registrar igual y
+                quedará marcada como fuera de plazo: si se acoge o no lo decide el establecimiento.
+              </span>
+            </div>
+          )}
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>Qué alega la familia</label>
+            <textarea autoFocus value={aFund} onChange={(e) => setAFund(e.target.value)} rows={4} placeholder="Los motivos de la apelación, en las palabras de quien la presenta." className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>Resolver antes del</label>
+            <input type="date" value={aHasta} onChange={(e) => setAHasta(e.target.value)} className="mt-1.5 rounded-md p-2.5 text-sm" style={campo} />
+            <p style={{ color: C.textSoft }} className="text-[11px] mt-1.5">
+              Cinco días hábiles por omisión. Vencido el plazo sin resolver, la apelación aparece
+              en rojo en el panel del sostenedor.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {paso === "resolver" && apelacion && (
+        <div className="flex flex-col gap-3">
+          <div style={{ background: C.paper, border: `1px solid ${C.paperLine}` }} className="rounded-lg p-3">
+            <div style={{ color: C.textSoft }} className="text-[11px] uppercase tracking-wide font-medium">Lo que alega la familia</div>
+            <div style={{ color: C.ink }} className="text-sm mt-1">{apelacion.fundamento}</div>
+            <div style={{ color: C.textSoft }} className="text-xs mt-1">
+              {apelacion.presentadaPor} · {String(apelacion.presentadaAt).slice(0, 10)}
+              {apelacion.fueraDePlazo ? " · presentada fuera de plazo" : ""}
+            </div>
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>Decisión</label>
+            <div className="flex flex-col gap-1.5 mt-1.5">
+              {DECISIONES_APELACION.map((d) => (
+                <label key={d.value} className="flex items-start gap-2 rounded-md p-2 cursor-pointer"
+                  style={{ border: `1px solid ${rEstado === d.value ? C.primary : C.cardBorder}`, background: rEstado === d.value ? C.primary + "0F" : "#fff" }}>
+                  <input type="radio" name="decision-apelacion" checked={rEstado === d.value} onChange={() => setREstado(d.value)} className="mt-0.5" />
+                  <span>
+                    <span style={{ color: C.ink }} className="text-sm font-medium">{d.label}</span>
+                    <span style={{ color: C.textSoft }} className="text-[11px] block">{d.ayuda}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={{ color: C.textSoft }} className={etiqueta}>Fundamento de la decisión</label>
+            <textarea value={rTexto} onChange={(e) => setRTexto(e.target.value)} rows={4} placeholder="Por qué se acoge o se rechaza. Es lo que se le entrega a la familia y lo que revisa la Superintendencia." className="mt-1.5 w-full rounded-md p-2.5 text-sm" style={campo} />
+          </div>
+          <p style={{ color: C.textSoft }} className="text-[11px]">
+            No puede resolver quien aplicó la medida: si la aplicó usted, el sistema lo va a
+            frenar y tendrá que resolverla otra persona de la dirección.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ background: "#FCE8E6", border: `1px solid ${C.urgent}`, color: C.urgent }} className="rounded-md p-2.5 text-[13px] mt-3">{error}</div>
+      )}
+
+      <div className="flex gap-2 justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={confirmar} disabled={!valido || guardando}>
+          <Save size={14} /> {guardando ? "Guardando…" : paso === "resolver" ? "Registrar la resolución" : "Guardar"}
+        </Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function StudentDetail({ student: s, cases, setStudents, role, roleKey, onOpenCase, onBack }) {
   const readOnly = role.scope === "audit" || role.scope === "family";
+  // La apelación la resuelve dirección; el servidor lo exige igual. Aquí solo se evita
+  // ofrecer un botón que va a terminar en un 403.
+  const puedeResolver = ["superadmin", "director"].includes(roleKey);
+  // Debido proceso: { medida, paso: "notificar" | "apelar" | "resolver", apelacion? }
+  const [dpModal, setDpModal] = useState(null);
   const scases = cases.filter((c) => caseHasStudent(c, s.id));
   const [ent, setEnt] = useState({ fecha: "", con: "Apoderado/a", resumen: "", foto: null });
   const [cit, setCit] = useState({ fecha: "", motivo: "", estado: "Asiste", excusa: "" });
@@ -2636,6 +2966,31 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       toast(e?.error || "No se pudo actualizar la medida. Se revirtió.");
     }
   }
+  // --- Debido proceso ---------------------------------------------------
+  // Reemplazan la medida completa en el expediente con lo que devolvió el servidor. Sin
+  // optimismo a propósito: acá se está acreditando algo, y mostrar por adelantado una
+  // notificación que después no se guardó es exactamente el registro que no debe existir.
+  function reemplazarMedida(saved) {
+    update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === saved.id ? saved : m)) }));
+  }
+  async function guardarNotificacion(mid, datos) {
+    const saved = await api.notificarMedida(mid, datos);
+    reemplazarMedida(saved);
+    toast("Notificación registrada. Queda en el expediente y en la auditoría.", "info");
+  }
+  async function guardarApelacion(mid, datos) {
+    const ap = await api.apelarMedida(mid, datos);
+    update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? { ...m, apelaciones: [...(m.apelaciones || []), ap] } : m)) }));
+    toast(ap.fueraDePlazo
+      ? "Apelación registrada, con la marca de que llegó fuera de plazo."
+      : "Apelación registrada. Falta resolverla.", "info");
+  }
+  async function guardarResolucion(mid, aid, datos) {
+    const ap = await api.resolverApelacion(aid, datos);
+    update((x) => ({ ...x, medidas: (x.medidas || []).map((m) => (m.id === mid ? { ...m, apelaciones: (m.apelaciones || []).map((a) => (a.id === aid ? ap : a)) } : m)) }));
+    toast("Apelación resuelta.", "info");
+  }
+
   // Portabilidad: entrega a la familia una copia completa del expediente.
   const [exportando, setExportando] = useState(false);
   async function exportarExpediente() {
@@ -2841,6 +3196,12 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
                     )}
                   </div>
                 )}
+                {/* Debido proceso. Aplicar una medida y no poder acreditar que la familia
+                    fue informada y pudo defenderse es lo que se cae en una fiscalización. */}
+                <DebidoProceso
+                  medida={m} readOnly={readOnly} puedeResolver={puedeResolver}
+                  onPaso={(paso, apelacion) => setDpModal({ medida: m, paso, apelacion })}
+                />
               </div>
             );
           })}
@@ -2894,6 +3255,17 @@ function StudentDetail({ student: s, cases, setStudents, role, onOpenCase, onBac
       )}
 
       {role.scope !== "family" && <HistorialCambios entity="student" id={s.id} />}
+
+      {dpModal && (
+        <DebidoProcesoModal
+          {...dpModal}
+          apoderado={s.apoderadoNombre}
+          onClose={() => setDpModal(null)}
+          onNotificar={(datos) => guardarNotificacion(dpModal.medida.id, datos)}
+          onApelar={(datos) => guardarApelacion(dpModal.medida.id, datos)}
+          onResolver={(datos) => guardarResolucion(dpModal.medida.id, dpModal.apelacion.id, datos)}
+        />
+      )}
 
       {medModal && (
         <MedidaModal
