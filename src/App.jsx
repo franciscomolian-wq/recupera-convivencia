@@ -6382,7 +6382,8 @@ function RedPanel({ session }) {
 
   // Por defecto ordenados por riesgo, no alfabéticamente: lo que importa es qué colegio
   // necesita atención hoy, no cuál viene primero en el abecedario.
-  const puntaje = (e) => e.riesgoVitalSinAcuse * 1000 + e.plazosVencidos * 100 + (e.enSilencio ? 50 : 0) + e.plazosPorVencer;
+  const puntaje = (e) => e.riesgoVitalSinAcuse * 1000 + e.apelacionesVencidas * 200 + e.plazosVencidos * 100
+    + (e.enSilencio ? 50 : 0) + e.apelacionesPendientes * 10 + e.plazosPorVencer;
   const lista = [...E].sort((a, b) => (orden === "riesgo" ? puntaje(b) - puntaje(a) : a.nombre.localeCompare(b.nombre)));
 
   const sinNada = T.casosActivos === 0 && T.establecimientos > 0;
@@ -6396,9 +6397,13 @@ function RedPanel({ session }) {
       />
 
       {/* Lo primero es la exposición legal, no el volumen. */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-5">
         <StatCard label="Plazos vencidos" value={T.plazosVencidos} color={T.plazosVencidos ? C.urgent : C.ok} />
         <StatCard label="Riesgo vital sin acuse" value={T.riesgoVitalSinAcuse} color={T.riesgoVitalSinAcuse ? C.urgent : C.ok} />
+        {/* Una apelación sin responder es la familia diciendo «no estoy de acuerdo» y el
+            colegio callado. Si además se le pasó el plazo, va en rojo con los demás. */}
+        <StatCard label="Apelaciones sin resolver" value={T.apelacionesPendientes}
+          color={T.apelacionesVencidas ? C.urgent : T.apelacionesPendientes ? C.warn : C.ok} />
         <StatCard label="Colegios sin registrar" value={T.enSilencio} color={T.enSilencio ? C.warn : C.ok} />
         <StatCard label="Casos activos" value={T.casosActivos} color={C.ink} />
         <StatCard label="Familias contactables" value={T.cobertura.pct + "%"} color={T.cobertura.pct < 50 ? C.warn : C.ok} />
@@ -6449,6 +6454,7 @@ function RedPanel({ session }) {
                 <th className="py-2 px-2 text-right">Casos activos</th>
                 <th className="py-2 px-2 text-right">Plazos vencidos</th>
                 <th className="py-2 px-2 text-right">Por vencer</th>
+                <th className="py-2 px-2 text-right">Apelaciones</th>
                 <th className="py-2 px-2 text-right">Sin registrar hace</th>
                 <th className="py-2 pl-2 text-right">Contactables</th>
               </tr>
@@ -6467,6 +6473,10 @@ function RedPanel({ session }) {
                   <td className="py-2.5 px-2 text-right" style={{ color: C.text }}>{e.casosActivos}</td>
                   <td className="py-2.5 px-2 text-right" style={{ color: e.plazosVencidos ? C.urgent : C.textSoft, fontWeight: e.plazosVencidos ? 600 : 400 }}>{e.plazosVencidos || "—"}</td>
                   <td className="py-2.5 px-2 text-right" style={{ color: e.plazosPorVencer ? C.warn : C.textSoft }}>{e.plazosPorVencer || "—"}</td>
+                  <td className="py-2.5 px-2 text-right" style={{ color: e.apelacionesVencidas ? C.urgent : e.apelacionesPendientes ? C.warn : C.textSoft, fontWeight: e.apelacionesVencidas ? 600 : 400 }}>
+                    {e.apelacionesPendientes || "—"}
+                    {e.apelacionesVencidas > 0 && <span className="text-xs"> ({e.apelacionesVencidas} fuera de plazo)</span>}
+                  </td>
                   <td className="py-2.5 px-2 text-right" style={{ color: e.enSilencio ? C.warn : C.textSoft, fontWeight: e.enSilencio ? 600 : 400 }}>
                     {e.ultimoRegistro ? `${e.diasSinRegistrar} días` : "nunca"}
                   </td>

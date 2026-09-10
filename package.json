@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "local": "vite --port 5180 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"src/*.test.mjs\""
